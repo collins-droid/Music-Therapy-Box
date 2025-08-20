@@ -295,6 +295,8 @@ class HeartRateMonitor(object):
             print('IR, Red')
         self.print_raw = print_raw
         self.print_result = print_result
+        self.last_bpm = 0
+        self.stable_readings = 0
 
     def run_sensor(self):
         """Main sensor loop running in separate thread."""
@@ -325,20 +327,51 @@ class HeartRateMonitor(object):
                 # Calculate HR and SpO2 when we have 100 samples
                 if len(ir_data) == 100:
                     bpm, valid_bpm, spo2, valid_spo2 = calc_hr_and_spo2(ir_data, red_data)
-                    if valid_bpm:
-                        bpms.append(bpm)
-                        while len(bpms) > 4:
-                            bpms.pop(0)
-                        self.bpm = np.mean(bpms)
-                        
-                        # Check if finger is detected
-                        if (np.mean(ir_data) < 50000 and np.mean(red_data) < 50000):
-                            self.bpm = 0
-                            if self.print_result:
-                                print("Finger not detected")
-                        else:
-                            if self.print_result:
-                                print("BPM: {0:.1f}, SpO2: {1:.1f}".format(self.bpm, spo2))
+                    
+                    # Check if finger is detected
+                    if (np.mean(ir_data) < 50000 and np.mean(red_data) < 50000):
+                        self.bpm = 0
+                        bpms.clear()  # Clear history when finger removed
+                        self.stable_readings = 0
+                        if self.print_result:
+                            print("Finger not detected")
+                    elif valid_bpm:
+                        # Filter out unrealistic readings
+                        if 40 <= bpm <= 200:
+                            # If this is very different from last reading, be more cautious
+                            if abs(bpm - self.last_bpm) > 30 and len(bpms) > 0:
+                                # Large change detected, require confirmation
+                                if self.stable_readings < 3:
+                                    self.stable_readings += 1
+                                    continue  # Don't update yet
+                                else:
+                                    # Confirmed large change
+                                    bpms.clear()
+                                    bpms.append(bpm)
+                                    self.stable_readings = 0
+                            else:
+                                # Normal reading
+                                bpms.append(bpm)
+                                self.stable_readings = 0
+                                
+                            while len(bpms) > 6:  # Increased smoothing window
+                                bpms.pop(0)
+                            
+                            if len(bpms) >= 3:  # Need at least 3 readings
+                                # Remove outliers before averaging
+                                sorted_bpms = sorted(bpms)
+                                if len(sorted_bpms) >= 3:
+                                    # Use median of middle values
+                                    trimmed_bpms = sorted_bpms[1:-1] if len(sorted_bpms) > 2 else sorted_bpms
+                                    self.bpm = np.mean(trimmed_bpms)
+                                else:
+                                    self.bpm = np.mean(bpms)
+                                
+                                self.last_bpm = self.bpm
+                                
+                                if self.print_result:
+                                    spo2_str = f"{spo2:.1f}" if valid_spo2 and spo2 > 0 else "---"
+                                    print("BPM: {0:.1f}, SpO2: {1}".format(self.bpm, spo2_str))
             
             time.sleep(self.LOOP_TIME)
         
