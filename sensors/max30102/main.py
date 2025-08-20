@@ -9,11 +9,15 @@ It includes a simple peak detection algorithm to determine heart rate.
 The sensor is initialized, calibrated, and runs in a separate thread.
 """
 
+
+
 import smbus
 import time
 import threading
 import numpy as np
 import argparse
+import csv
+from datetime import datetime
 
 # ============================================================================
 # MAX30102 Sensor Class
@@ -131,12 +135,21 @@ def calculate_heart_rate(ir_data, sample_rate=25):
     # Convert to numpy array and normalize
     signal = np.array(ir_data, dtype=float)
     
+    if len(signal) == 0:
+        return None, False
+    
     # Remove DC component
-    signal = signal - np.mean(signal)
+    signal_mean = np.mean(signal)
+    signal = signal - signal_mean
+    
+    # Check if we have valid signal
+    signal_std = np.std(signal)
+    if signal_std == 0 or np.isnan(signal_std):
+        return None, False
     
     # Simple peak detection
     peaks = []
-    threshold = np.std(signal) * 0.3  # Adaptive threshold
+    threshold = signal_std * 0.3  # Adaptive threshold
     
     for i in range(1, len(signal) - 1):
         if (signal[i] > threshold and 
@@ -156,13 +169,19 @@ def calculate_heart_rate(ir_data, sample_rate=25):
         
     # Remove outlier intervals
     if len(intervals) > 2:
-        intervals = intervals[intervals < np.mean(intervals) + 2 * np.std(intervals)]
-        intervals = intervals[intervals > np.mean(intervals) - 2 * np.std(intervals)]
+        interval_mean = np.mean(intervals)
+        interval_std = np.std(intervals)
+        if interval_std > 0:  # Avoid division by zero
+            intervals = intervals[intervals < interval_mean + 2 * interval_std]
+            intervals = intervals[intervals > interval_mean - 2 * interval_std]
     
     if len(intervals) == 0:
         return None, False
         
     avg_interval = np.mean(intervals)
+    if avg_interval == 0:
+        return None, False
+        
     heart_rate = (sample_rate * 60) / avg_interval
     
     # Filter unrealistic values
@@ -181,14 +200,23 @@ class HeartRateMonitor(object):
     
     LOOP_TIME = 0.01
 
-    def __init__(self, print_raw=False, print_result=False):
+    def __init__(self, print_raw=False, print_result=False, save_data=True):
         self.bpm = 0
         if print_raw:
             print('IR, Red')
         self.print_raw = print_raw
         self.print_result = print_result
+        self.save_data = save_data
         self.calibrating = True
         self.calibration_start = None
+        
+        # Create data file if saving is enabled
+        if self.save_data:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.data_file = f"heart_rate_data_{timestamp}.csv"
+            with open(self.data_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['timestamp', 'bpm', 'ir_avg', 'red_avg', 'finger_detected'])
 
     def run_sensor(self):
         """Main sensor loop running in separate thread."""
@@ -225,12 +253,29 @@ class HeartRateMonitor(object):
 
                 # Calculate HR when we have enough samples and calibration is done
                 if len(ir_data) >= 50 and not self.calibrating:
+                    ir_avg = np.mean(ir_data)
+                    red_avg = np.mean(red_data)
+                    
                     # Check if finger is detected
-                    if (np.mean(ir_data) < 50000 and np.mean(red_data) < 50000):
+                    finger_detected = not (ir_avg < 50000 and red_avg < 50000)
+                    
+                    if not finger_detected:
                         self.bpm = 0
                         bpms.clear()  # Clear history when finger removed
                         if self.print_result:
                             print("Finger not detected")
+                        
+                        # Save data even when finger not detected
+                        if self.save_data:
+                            with open(self.data_file, 'a', newline='') as f:
+                                writer = csv.writer(f)
+                                writer.writerow([
+                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                                    0,
+                                    ir_avg,
+                                    red_avg,
+                                    False
+                                ])
                     else:
                         hr, valid = calculate_heart_rate(ir_data)
                         if valid:
@@ -242,6 +287,18 @@ class HeartRateMonitor(object):
                             
                             if self.print_result:
                                 print("BPM: {0:.1f}".format(self.bpm))
+                            
+                            # Save data to file
+                            if self.save_data:
+                                with open(self.data_file, 'a', newline='') as f:
+                                    writer = csv.writer(f)
+                                    writer.writerow([
+                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                                        round(self.bpm, 1),
+                                        ir_avg,
+                                        red_avg,
+                                        True
+                                    ])
                 elif self.calibrating and self.print_result:
                     remaining = 5.0 - (time.time() - self.calibration_start)
                     if remaining > 0 and int(remaining) != int(remaining + self.LOOP_TIME):
@@ -295,4 +352,9 @@ if __name__ == "__main__":
     finally:
         if 'hrm' in locals():
             hrm.stop_sensor()
+        
+        # Show data file location if data was saved
+        if not args.raw and 'hrm' in locals() and hasattr(hrm, 'data_file'):
+            print(f'Data saved to: {hrm.data_file}')
+        
         print('Sensor stopped!')
