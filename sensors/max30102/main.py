@@ -2,8 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Complete MAX30102 Heart Rate Monitor System
-Combines all components into a single working script
+MAX30102 Heart Rate Monitor
+This script reads heart rate data from the MAX30102 sensor using I2C.
+It calculates heart rate based on the IR LED signal and prints the results.
+It includes a simple peak detection algorithm to determine heart rate.
+The sensor is initialized, calibrated, and runs in a separate thread.
 """
 
 import smbus
@@ -75,7 +78,7 @@ class MAX30102:
         # FIFO config
         self.bus.write_i2c_block_data(self.address, REG_FIFO_CONFIG, [0x4f])
         
-        # Mode config (SpO2 mode)
+        # Mode config (SpO2 mode for both red and IR)
         self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [led_mode])
         
         # SpO2 config
@@ -115,169 +118,58 @@ class MAX30102:
 
 
 # ============================================================================
-# Heart Rate and SpO2 Calculation
+# Simple Heart Rate Calculation
 # ============================================================================
 
-# Algorithm constants
-SAMPLE_FREQ = 25
-MA_SIZE = 4
-BUFFER_SIZE = 100
-
-
-def calc_hr_and_spo2(ir_data, red_data):
+def calculate_heart_rate(ir_data, sample_rate=25):
     """
-    Calculate heart rate and SpO2 from IR and Red LED data.
+    Simple heart rate calculation using peak detection on IR signal.
     """
-    # Convert to numpy arrays
-    ir_data = np.array(ir_data)
-    red_data = np.array(red_data)
-    
-    # Get DC mean and remove it
-    ir_mean = int(np.mean(ir_data))
-    x = -1 * (ir_data - ir_mean)
-
-    # 4 point moving average
-    for i in range(x.shape[0] - MA_SIZE):
-        x[i] = np.sum(x[i:i+MA_SIZE]) / MA_SIZE
-
-    # Calculate threshold
-    n_th = int(np.mean(x))
-    n_th = max(30, min(60, n_th))  # Clamp between 30-60
-
-    ir_valley_locs, n_peaks = find_peaks(x, BUFFER_SIZE, n_th, 4, 15)
-    
-    # Calculate heart rate
-    if n_peaks >= 2:
-        peak_interval_sum = 0
-        for i in range(1, n_peaks):
-            peak_interval_sum += (ir_valley_locs[i] - ir_valley_locs[i-1])
-        peak_interval_sum = int(peak_interval_sum / (n_peaks - 1))
-        hr = int(SAMPLE_FREQ * 60 / peak_interval_sum)
-        hr_valid = True
-    else:
-        hr = -999
-        hr_valid = False
-
-    # Calculate SpO2
-    exact_ir_valley_locs_count = n_peaks
-
-    # Check if valley locations are within buffer
-    for i in range(exact_ir_valley_locs_count):
-        if ir_valley_locs[i] > BUFFER_SIZE:
-            spo2 = -999
-            spo2_valid = False
-            return hr, hr_valid, spo2, spo2_valid
-
-    i_ratio_count = 0
-    ratio = []
-
-    # Calculate ratio for SpO2
-    for k in range(exact_ir_valley_locs_count-1):
-        red_dc_max = -16777216
-        ir_dc_max = -16777216
-        red_dc_max_index = -1
-        ir_dc_max_index = -1
+    if len(ir_data) < 50:
+        return None, False
         
-        if ir_valley_locs[k+1] - ir_valley_locs[k] > 3:
-            for i in range(ir_valley_locs[k], ir_valley_locs[k+1]):
-                if ir_data[i] > ir_dc_max:
-                    ir_dc_max = ir_data[i]
-                    ir_dc_max_index = i
-                if red_data[i] > red_dc_max:
-                    red_dc_max = red_data[i]
-                    red_dc_max_index = i
-
-            # Calculate AC components
-            red_ac = int((red_data[ir_valley_locs[k+1]] - red_data[ir_valley_locs[k]]) * 
-                        (red_dc_max_index - ir_valley_locs[k]))
-            red_ac = red_data[ir_valley_locs[k]] + int(red_ac / (ir_valley_locs[k+1] - ir_valley_locs[k]))
-            red_ac = red_data[red_dc_max_index] - red_ac
-
-            ir_ac = int((ir_data[ir_valley_locs[k+1]] - ir_data[ir_valley_locs[k]]) * 
-                       (ir_dc_max_index - ir_valley_locs[k]))
-            ir_ac = ir_data[ir_valley_locs[k]] + int(ir_ac / (ir_valley_locs[k+1] - ir_valley_locs[k]))
-            ir_ac = ir_data[ir_dc_max_index] - ir_ac
-
-            # Calculate ratio
-            nume = red_ac * ir_dc_max
-            denom = ir_ac * red_dc_max
-            if (denom > 0 and i_ratio_count < 5) and nume != 0:
-                ratio.append(int(((nume * 100) & 0xffffffff) / denom))
-                i_ratio_count += 1
-
-    # Calculate SpO2 from ratio
-    if len(ratio) > 0:
-        ratio = sorted(ratio)
-        mid_index = int(i_ratio_count / 2)
-        
-        if mid_index > 1:
-            ratio_ave = int((ratio[mid_index-1] + ratio[mid_index])/2)
-        else:
-            ratio_ave = ratio[mid_index]
-
-        if 2 < ratio_ave < 184:
-            spo2 = -45.060 * (ratio_ave**2) / 10000.0 + 30.054 * ratio_ave / 100.0 + 94.845
-            spo2_valid = True
-        else:
-            spo2 = -999
-            spo2_valid = False
-    else:
-        spo2 = -999
-        spo2_valid = False
-
-    return hr, hr_valid, spo2, spo2_valid
-
-
-def find_peaks(x, size, min_height, min_dist, max_num):
-    """Find peaks in signal."""
-    ir_valley_locs, n_peaks = find_peaks_above_min_height(x, size, min_height, max_num)
-    ir_valley_locs, n_peaks = remove_close_peaks(n_peaks, ir_valley_locs, x, min_dist)
-    n_peaks = min([n_peaks, max_num])
-    return ir_valley_locs, n_peaks
-
-
-def find_peaks_above_min_height(x, size, min_height, max_num):
-    """Find all peaks above minimum height."""
-    i = 0
-    n_peaks = 0
-    ir_valley_locs = []
+    # Convert to numpy array and normalize
+    signal = np.array(ir_data, dtype=float)
     
-    while i < size - 1:
-        if x[i] > min_height and x[i] > x[i-1]:
-            n_width = 1
-            while i + n_width < size - 1 and x[i] == x[i+n_width]:
-                n_width += 1
-            if x[i] > x[i+n_width] and n_peaks < max_num:
-                ir_valley_locs.append(i)
-                n_peaks += 1
-                i += n_width + 1
-            else:
-                i += n_width
-        else:
-            i += 1
-    return ir_valley_locs, n_peaks
-
-
-def remove_close_peaks(n_peaks, ir_valley_locs, x, min_dist):
-    """Remove peaks that are too close together."""
-    sorted_indices = sorted(ir_valley_locs, key=lambda i: x[i])
-    sorted_indices.reverse()
-
-    i = -1
-    while i < n_peaks:
-        old_n_peaks = n_peaks
-        n_peaks = i + 1
-        j = i + 1
-        while j < old_n_peaks:
-            n_dist = (sorted_indices[j] - sorted_indices[i]) if i != -1 else (sorted_indices[j] + 1)
-            if n_dist > min_dist or n_dist < -1 * min_dist:
-                sorted_indices[n_peaks] = sorted_indices[j]
-                n_peaks += 1
-            j += 1
-        i += 1
-
-    sorted_indices[:n_peaks] = sorted(sorted_indices[:n_peaks])
-    return sorted_indices, n_peaks
+    # Remove DC component
+    signal = signal - np.mean(signal)
+    
+    # Simple peak detection
+    peaks = []
+    threshold = np.std(signal) * 0.3  # Adaptive threshold
+    
+    for i in range(1, len(signal) - 1):
+        if (signal[i] > threshold and 
+            signal[i] > signal[i-1] and 
+            signal[i] > signal[i+1]):
+            # Check if this peak is far enough from the last one
+            if not peaks or (i - peaks[-1]) > 10:  # Minimum distance between peaks
+                peaks.append(i)
+    
+    if len(peaks) < 2:
+        return None, False
+        
+    # Calculate heart rate from peak intervals
+    intervals = np.diff(peaks)
+    if len(intervals) == 0:
+        return None, False
+        
+    # Remove outlier intervals
+    if len(intervals) > 2:
+        intervals = intervals[intervals < np.mean(intervals) + 2 * np.std(intervals)]
+        intervals = intervals[intervals > np.mean(intervals) - 2 * np.std(intervals)]
+    
+    if len(intervals) == 0:
+        return None, False
+        
+    avg_interval = np.mean(intervals)
+    heart_rate = (sample_rate * 60) / avg_interval
+    
+    # Filter unrealistic values
+    if 40 <= heart_rate <= 200:
+        return heart_rate, True
+    else:
+        return None, False
 
 
 # ============================================================================
@@ -285,7 +177,7 @@ def remove_close_peaks(n_peaks, ir_valley_locs, x, min_dist):
 # ============================================================================
 
 class HeartRateMonitor(object):
-    """A class that encapsulates the MAX30102 device into a thread."""
+    """A simplified heart rate monitor class."""
     
     LOOP_TIME = 0.01
 
@@ -295,8 +187,8 @@ class HeartRateMonitor(object):
             print('IR, Red')
         self.print_raw = print_raw
         self.print_result = print_result
-        self.last_bpm = 0
-        self.stable_readings = 0
+        self.calibrating = True
+        self.calibration_start = None
 
     def run_sensor(self):
         """Main sensor loop running in separate thread."""
@@ -304,6 +196,7 @@ class HeartRateMonitor(object):
         ir_data = []
         red_data = []
         bpms = []
+        self.calibration_start = time.time()
         
         # Run until told to stop
         while not self._thread.stopped:
@@ -324,54 +217,35 @@ class HeartRateMonitor(object):
                     ir_data.pop(0)
                     red_data.pop(0)
 
-                # Calculate HR and SpO2 when we have 100 samples
-                if len(ir_data) == 100:
-                    bpm, valid_bpm, spo2, valid_spo2 = calc_hr_and_spo2(ir_data, red_data)
-                    
+                # Check calibration period
+                if self.calibrating and time.time() - self.calibration_start > 5.0:
+                    self.calibrating = False
+                    if self.print_result:
+                        print("Calibration complete. Reading heart rate...")
+
+                # Calculate HR when we have enough samples and calibration is done
+                if len(ir_data) >= 50 and not self.calibrating:
                     # Check if finger is detected
                     if (np.mean(ir_data) < 50000 and np.mean(red_data) < 50000):
                         self.bpm = 0
                         bpms.clear()  # Clear history when finger removed
-                        self.stable_readings = 0
                         if self.print_result:
                             print("Finger not detected")
-                    elif valid_bpm:
-                        # Filter out unrealistic readings
-                        if 40 <= bpm <= 200:
-                            # If this is very different from last reading, be more cautious
-                            if abs(bpm - self.last_bpm) > 30 and len(bpms) > 0:
-                                # Large change detected, require confirmation
-                                if self.stable_readings < 3:
-                                    self.stable_readings += 1
-                                    continue  # Don't update yet
-                                else:
-                                    # Confirmed large change
-                                    bpms.clear()
-                                    bpms.append(bpm)
-                                    self.stable_readings = 0
-                            else:
-                                # Normal reading
-                                bpms.append(bpm)
-                                self.stable_readings = 0
-                                
-                            while len(bpms) > 6:  # Increased smoothing window
+                    else:
+                        hr, valid = calculate_heart_rate(ir_data)
+                        if valid:
+                            bpms.append(hr)
+                            while len(bpms) > 4:
                                 bpms.pop(0)
                             
-                            if len(bpms) >= 3:  # Need at least 3 readings
-                                # Remove outliers before averaging
-                                sorted_bpms = sorted(bpms)
-                                if len(sorted_bpms) >= 3:
-                                    # Use median of middle values
-                                    trimmed_bpms = sorted_bpms[1:-1] if len(sorted_bpms) > 2 else sorted_bpms
-                                    self.bpm = np.mean(trimmed_bpms)
-                                else:
-                                    self.bpm = np.mean(bpms)
-                                
-                                self.last_bpm = self.bpm
-                                
-                                if self.print_result:
-                                    spo2_str = f"{spo2:.1f}" if valid_spo2 and spo2 > 0 else "---"
-                                    print("BPM: {0:.1f}, SpO2: {1}".format(self.bpm, spo2_str))
+                            self.bpm = np.mean(bpms)
+                            
+                            if self.print_result:
+                                print("BPM: {0:.1f}".format(self.bpm))
+                elif self.calibrating and self.print_result:
+                    remaining = 5.0 - (time.time() - self.calibration_start)
+                    if remaining > 0 and int(remaining) != int(remaining + self.LOOP_TIME):
+                        print("Calibrating... {0:.0f}s remaining".format(remaining))
             
             time.sleep(self.LOOP_TIME)
         
@@ -395,7 +269,7 @@ class HeartRateMonitor(object):
 # ============================================================================
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Read and print data from MAX30102")
+    parser = argparse.ArgumentParser(description="Read heart rate from MAX30102")
     parser.add_argument("-r", "--raw", action="store_true",
                         help="print raw data instead of calculation result")
     parser.add_argument("-t", "--time", type=int, default=30,
@@ -408,7 +282,10 @@ if __name__ == "__main__":
         hrm = HeartRateMonitor(print_raw=args.raw, print_result=(not args.raw))
         hrm.start_sensor()
         
-        print(f'Reading for {args.time} seconds. Place your finger on the sensor...')
+        if not args.raw:
+            print('Place your finger on the sensor...')
+            print('Calibrating for 5 seconds...')
+        
         time.sleep(args.time)
         
     except KeyboardInterrupt:
