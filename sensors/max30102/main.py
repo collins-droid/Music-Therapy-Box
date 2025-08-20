@@ -1,228 +1,158 @@
-import smbus2
-import time
-import numpy as np
+# -*-coding:utf-8-*-
 
-class MAX30102:
-    # Register addresses
-    REG_INTR_STATUS_1 = 0x00
-    REG_INTR_STATUS_2 = 0x01
-    REG_INTR_ENABLE_1 = 0x02
-    REG_INTR_ENABLE_2 = 0x03
-    REG_FIFO_WR_PTR = 0x04
-    REG_OVF_COUNTER = 0x05
-    REG_FIFO_RD_PTR = 0x06
-    REG_FIFO_DATA = 0x07
-    REG_FIFO_CONFIG = 0x08
-    REG_MODE_CONFIG = 0x09
-    REG_SPO2_CONFIG = 0x0A
-    REG_LED1_PA = 0x0C  # Red LED
-    REG_LED2_PA = 0x0D  # IR LED
-    REG_PILOT_PA = 0x10
-    REG_MULTI_LED_CTRL1 = 0x11
-    REG_MULTI_LED_CTRL2 = 0x12
-    REG_TEMP_INTR = 0x1F
-    REG_TEMP_FRAC = 0x20
-    REG_TEMP_CONFIG = 0x21
-    REG_PROX_INT_THRESH = 0x30
-    REG_REV_ID = 0xFE
-    REG_PART_ID = 0xFF
-    
-    def __init__(self, i2c_bus=1, i2c_address=0x57):
-        """
-        Initialize MAX30102 sensor
-        i2c_bus: I2C bus number (1 for Pi 4B)
-        i2c_address: I2C address (0x57 is default)
-        """
-        self.i2c_bus = i2c_bus
-        self.i2c_address = i2c_address
-        self.bus = smbus2.SMBus(i2c_bus)
-        
-        # Check if sensor is connected
-        try:
-            part_id = self.bus.read_byte_data(self.i2c_address, self.REG_PART_ID)
-            if part_id != 0x15:  # MAX30102 part ID
-                raise Exception(f"Wrong part ID: {hex(part_id)}, expected 0x15")
-            print("MAX30102 sensor detected successfully!")
-        except Exception as e:
-            raise Exception(f"Failed to initialize MAX30102: {e}")
-            
+# this code is currently for python 2.7
+from __future__ import print_function
+from time import sleep
+import smbus
+
+# register addresses
+REG_INTR_STATUS_1 = 0x00
+REG_INTR_STATUS_2 = 0x01
+
+REG_INTR_ENABLE_1 = 0x02
+REG_INTR_ENABLE_2 = 0x03
+
+REG_FIFO_WR_PTR = 0x04
+REG_OVF_COUNTER = 0x05
+REG_FIFO_RD_PTR = 0x06
+REG_FIFO_DATA = 0x07
+REG_FIFO_CONFIG = 0x08
+
+REG_MODE_CONFIG = 0x09
+REG_SPO2_CONFIG = 0x0A
+REG_LED1_PA = 0x0C
+
+REG_LED2_PA = 0x0D
+REG_PILOT_PA = 0x10
+REG_MULTI_LED_CTRL1 = 0x11
+REG_MULTI_LED_CTRL2 = 0x12
+
+REG_TEMP_INTR = 0x1F
+REG_TEMP_FRAC = 0x20
+REG_TEMP_CONFIG = 0x21
+REG_PROX_INT_THRESH = 0x30
+REG_REV_ID = 0xFE
+REG_PART_ID = 0xFF
+
+
+class MAX30102():
+    # by default, this assumes that the device is at 0x57 on channel 1
+    def __init__(self, channel=1, address=0x57):
+        #print("Channel: {0}, address: {1}".format(channel, address))
+        self.address = address
+        self.channel = channel
+        self.bus = smbus.SMBus(self.channel)
+
+        self.reset()
+
+        sleep(1)  # wait 1 sec
+
+        # read & clear interrupt register (read 1 byte)
+        reg_data = self.bus.read_i2c_block_data(self.address, REG_INTR_STATUS_1, 1)
+        # print("[SETUP] reset complete with interrupt register0: {0}".format(reg_data))
         self.setup()
-    
-    def setup(self):
-        """Configure the sensor"""
-        # Reset the sensor
-        self.bus.write_byte_data(self.i2c_address, self.REG_MODE_CONFIG, 0x40)
-        time.sleep(0.1)
-        
-        # Configure FIFO
-        self.bus.write_byte_data(self.i2c_address, self.REG_FIFO_CONFIG, 0x4F)  # Sample averaging = 4, FIFO rollover = true, FIFO almost full = 15
-        
-        # Configure mode (SpO2 mode)
-        self.bus.write_byte_data(self.i2c_address, self.REG_MODE_CONFIG, 0x03)
-        
-        # Configure SpO2 (ADC range = 4096nA, Sample rate = 100Hz, pulse width = 411μs)
-        self.bus.write_byte_data(self.i2c_address, self.REG_SPO2_CONFIG, 0x27)
-        
-        # Configure LED pulse amplitudes
-        self.bus.write_byte_data(self.i2c_address, self.REG_LED1_PA, 0x24)  # Red LED current
-        self.bus.write_byte_data(self.i2c_address, self.REG_LED2_PA, 0x24)  # IR LED current
-        
-        # Clear FIFO
-        self.clear_fifo()
-        
-    def clear_fifo(self):
-        """Clear FIFO pointers"""
-        self.bus.write_byte_data(self.i2c_address, self.REG_FIFO_WR_PTR, 0x00)
-        self.bus.write_byte_data(self.i2c_address, self.REG_OVF_COUNTER, 0x00)
-        self.bus.write_byte_data(self.i2c_address, self.REG_FIFO_RD_PTR, 0x00)
-    
-    def read_fifo(self):
-        """Read data from FIFO"""
-        # Read FIFO pointers
-        wr_ptr = self.bus.read_byte_data(self.i2c_address, self.REG_FIFO_WR_PTR)
-        rd_ptr = self.bus.read_byte_data(self.i2c_address, self.REG_FIFO_RD_PTR)
-        
-        # Calculate number of samples
-        num_samples = (wr_ptr - rd_ptr) & 0x1F
-        
-        if num_samples == 0:
-            return [], []
-        
-        red_data = []
-        ir_data = []
-        
-        # Read samples
-        for _ in range(num_samples):
-            # Read 6 bytes (3 bytes red + 3 bytes IR)
-            fifo_data = self.bus.read_i2c_block_data(self.i2c_address, self.REG_FIFO_DATA, 6)
-            
-            # Convert to 18-bit values
-            red = (fifo_data[0] << 16) | (fifo_data[1] << 8) | fifo_data[2]
-            red &= 0x3FFFF  # 18-bit mask
-            
-            ir = (fifo_data[3] << 16) | (fifo_data[4] << 8) | fifo_data[5]
-            ir &= 0x3FFFF  # 18-bit mask
-            
-            red_data.append(red)
-            ir_data.append(ir)
-        
-        return red_data, ir_data
-    
-    def read_temperature(self):
-        """Read temperature from sensor"""
-        # Enable temperature measurement
-        self.bus.write_byte_data(self.i2c_address, self.REG_TEMP_CONFIG, 0x01)
-        
-        # Wait for measurement
-        time.sleep(0.1)
-        
-        # Read temperature
-        temp_int = self.bus.read_byte_data(self.i2c_address, self.REG_TEMP_INTR)
-        temp_frac = self.bus.read_byte_data(self.i2c_address, self.REG_TEMP_FRAC)
-        
-        # Convert to Celsius
-        temperature = temp_int + (temp_frac * 0.0625)
-        
-        return temperature
-    
-    def calculate_heart_rate(self, ir_data, sample_rate=100):
-        """
-        Simple heart rate calculation using peak detection
-        ir_data: List of IR values
-        sample_rate: Sampling rate in Hz
-        """
-        if len(ir_data) < 20:
-            return None
-            
-        # Convert to numpy array and normalize
-        signal = np.array(ir_data, dtype=float)
-        signal = (signal - np.mean(signal)) / np.std(signal)
-        
-        # Simple peak detection
-        peaks = []
-        threshold = 0.5
-        
-        for i in range(1, len(signal) - 1):
-            if signal[i] > threshold and signal[i] > signal[i-1] and signal[i] > signal[i+1]:
-                peaks.append(i)
-        
-        if len(peaks) < 2:
-            return None
-            
-        # Calculate heart rate
-        peak_intervals = np.diff(peaks)
-        if len(peak_intervals) == 0:
-            return None
-            
-        avg_interval = np.mean(peak_intervals)
-        heart_rate = (sample_rate * 60) / avg_interval
-        
-        # Filter unrealistic values
-        if 40 <= heart_rate <= 200:
-            return heart_rate
-        else:
-            return None
-    
-    def read_sensor_data(self, duration=5):
-        """
-        Read sensor data for specified duration
-        duration: Time in seconds to collect data
-        """
-        print(f"Collecting data for {duration} seconds...")
-        
-        red_buffer = []
-        ir_buffer = []
-        start_time = time.time()
-        
-        while (time.time() - start_time) < duration:
-            red_data, ir_data = self.read_fifo()
-            red_buffer.extend(red_data)
-            ir_buffer.extend(ir_data)
-            time.sleep(0.01)  # 10ms delay
-        
-        return red_buffer, ir_buffer
-    
-    def get_measurement(self, duration=10):
-        """Get a complete measurement including heart rate"""
-        red_data, ir_data = self.read_sensor_data(duration)
-        
-        if not ir_data:
-            return None
-            
-        heart_rate = self.calculate_heart_rate(ir_data)
-        temperature = self.read_temperature()
-        
-        return {
-            'heart_rate': heart_rate,
-            'temperature': temperature,
-            'red_samples': len(red_data),
-            'ir_samples': len(ir_data),
-            'red_avg': np.mean(red_data) if red_data else 0,
-            'ir_avg': np.mean(ir_data) if ir_data else 0
-        }
+        # print("[SETUP] setup complete")
 
-# Example usage
-if __name__ == "__main__":
-    try:
-        sensor = MAX30102()
-        print("Place your finger on the sensor...")
-        time.sleep(2)
-        
-        # Take measurement
-        measurement = sensor.get_measurement(duration=15)
-        
-        if measurement:
-            print("\nMeasurement Results:")
-            print(f"Heart Rate: {measurement['heart_rate']:.1f} BPM" if measurement['heart_rate'] else "Heart Rate: Unable to detect")
-            print(f"Temperature: {measurement['temperature']:.1f}°C")
-            print(f"Red LED samples: {measurement['red_samples']}")
-            print(f"IR LED samples: {measurement['ir_samples']}")
-            print(f"Average Red: {measurement['red_avg']:.0f}")
-            print(f"Average IR: {measurement['ir_avg']:.0f}")
+    def shutdown(self):
+        """
+        Shutdown the device.
+        """
+        self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [0x80])
+
+    def reset(self):
+        """
+        Reset the device, this will clear all settings,
+        so after running this, run setup() again.
+        """
+        self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [0x40])
+
+    def setup(self, led_mode=0x03):
+        """
+        This will setup the device with the values written in sample Arduino code.
+        """
+        # INTR setting
+        # 0xc0 : A_FULL_EN and PPG_RDY_EN = Interrupt will be triggered when
+        # fifo almost full & new fifo data ready
+        self.bus.write_i2c_block_data(self.address, REG_INTR_ENABLE_1, [0xc0])
+        self.bus.write_i2c_block_data(self.address, REG_INTR_ENABLE_2, [0x00])
+
+        # FIFO_WR_PTR[4:0]
+        self.bus.write_i2c_block_data(self.address, REG_FIFO_WR_PTR, [0x00])
+        # OVF_COUNTER[4:0]
+        self.bus.write_i2c_block_data(self.address, REG_OVF_COUNTER, [0x00])
+        # FIFO_RD_PTR[4:0]
+        self.bus.write_i2c_block_data(self.address, REG_FIFO_RD_PTR, [0x00])
+
+        # 0b 0100 1111
+        # sample avg = 4, fifo rollover = false, fifo almost full = 17
+        self.bus.write_i2c_block_data(self.address, REG_FIFO_CONFIG, [0x4f])
+
+        # 0x02 for read-only, 0x03 for SpO2 mode, 0x07 multimode LED
+        self.bus.write_i2c_block_data(self.address, REG_MODE_CONFIG, [led_mode])
+        # 0b 0010 0111
+        # SPO2_ADC range = 4096nA, SPO2 sample rate = 100Hz, LED pulse-width = 411uS
+        self.bus.write_i2c_block_data(self.address, REG_SPO2_CONFIG, [0x27])
+
+        # choose value for ~7mA for LED1
+        self.bus.write_i2c_block_data(self.address, REG_LED1_PA, [0x24])
+        # choose value for ~7mA for LED2
+        self.bus.write_i2c_block_data(self.address, REG_LED2_PA, [0x24])
+        # choose value fro ~25mA for Pilot LED
+        self.bus.write_i2c_block_data(self.address, REG_PILOT_PA, [0x7f])
+
+    # this won't validate the arguments!
+    # use when changing the values from default
+    def set_config(self, reg, value):
+        self.bus.write_i2c_block_data(self.address, reg, value)
+
+    def get_data_present(self):
+        read_ptr = self.bus.read_byte_data(self.address, REG_FIFO_RD_PTR)
+        write_ptr = self.bus.read_byte_data(self.address, REG_FIFO_WR_PTR)
+        if read_ptr == write_ptr:
+            return 0
         else:
-            print("No valid measurement obtained")
-            
-    except Exception as e:
-        print(f"Error: {e}")
-    except KeyboardInterrupt:
-        print("\nStopping...")
+            num_samples = write_ptr - read_ptr
+            # account for pointer wrap around
+            if num_samples < 0:
+                num_samples += 32
+            return num_samples
+
+    def read_fifo(self):
+        """
+        This function will read the data register.
+        """
+        red_led = None
+        ir_led = None
+
+        # read 1 byte from registers (values are discarded)
+        reg_INTR1 = self.bus.read_i2c_block_data(self.address, REG_INTR_STATUS_1, 1)
+        reg_INTR2 = self.bus.read_i2c_block_data(self.address, REG_INTR_STATUS_2, 1)
+
+        # read 6-byte data from the device
+        d = self.bus.read_i2c_block_data(self.address, REG_FIFO_DATA, 6)
+
+        # mask MSB [23:18]
+        red_led = (d[0] << 16 | d[1] << 8 | d[2]) & 0x03FFFF
+        ir_led = (d[3] << 16 | d[4] << 8 | d[5]) & 0x03FFFF
+
+        return red_led, ir_led
+
+    def read_sequential(self, amount=100):
+        """
+        This function will read the red-led and ir-led `amount` times.
+        This works as blocking function.
+        """
+        red_buf = []
+        ir_buf = []
+        count = amount
+        while count > 0:
+            num_bytes = self.get_data_present()
+            while num_bytes > 0:
+                red, ir = self.read_fifo()
+
+                red_buf.append(red)
+                ir_buf.append(ir)
+                num_bytes -= 1
+                count -= 1
+
+        return red_buf, ir_buf
