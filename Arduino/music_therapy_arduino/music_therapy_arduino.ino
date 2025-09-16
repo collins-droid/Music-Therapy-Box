@@ -11,8 +11,6 @@ const int START_BUTTON = 2;    // START button connected to digital pin 2
 const int STOP_BUTTON = 3;      // STOP button connected to digital pin 3
 const int LED1_PIN = 4;         // LED1 (calibration indicator) on digital pin 4
 const int LED2_PIN = 5;         // LED2 (session indicator) on digital pin 5
-const int SDA_PIN = A4;         // I2C SDA for LCD and MAX30102
-const int SCL_PIN = A5;         // I2C SCL for LCD and MAX30102
 
 // GSR sensor variables
 int gsrValue = 0;
@@ -216,10 +214,10 @@ void collectBaselineData() {
     // Add GSR conductance to baseline sum
     gsrBaselineSum += conductance;
     
-    // For MAX30102, we'll simulate HR reading since Arduino doesn't have direct access
-    // In a real implementation, you would read from MAX30102 via I2C
-    // The MAX30102 sensor is typically connected to Raspberry Pi via I2C
-    // For Arduino implementation, we simulate HR based on GSR patterns
+    // MAX30102 Heart Rate Sensor is connected to Raspberry Pi via I2C
+    // Arduino only collects GSR data and sends it to Pi
+    // Pi will collect actual HR data from MAX30102 and combine with GSR baseline
+    // For Arduino baseline collection, we simulate HR based on GSR patterns
     float simulatedHR = 70.0 + (conductance / 1000.0) * 10.0; // Simulate HR variation
     hrBaselineSum += simulatedHR;
     
@@ -266,10 +264,8 @@ float calculateConductance(int adcValue) {
 }
 
 void sendDataToPi() {
-  // Send GSR data
-  Serial.print("GSR:");
-  Serial.print(gsr_average);
-  Serial.print(",CONDUCTANCE:");
+  // Send GSR conductance data (Arduino already computed this)
+  Serial.print("GSR_CONDUCTANCE:");
   Serial.println(conductance, 2);
   
   // Send system status

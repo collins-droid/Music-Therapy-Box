@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 GSR Sensor Module for Music Therapy Box
-Receives GSR data from Arduino via serial communication
-Handles conductance conversion and data processing
+Receives pre-computed GSR conductance data from Arduino via serial communication
+Arduino handles ADC reading and conductance calculation, Pi only processes the results
 """
 
 import serial
@@ -26,8 +26,9 @@ class GSRReading:
 
 class GSRSensor:
     """
-    GSR sensor class that communicates with Arduino via serial
-    Handles conductance conversion and data collection
+    GSR sensor class that receives pre-computed conductance data from Arduino
+    Arduino handles ADC reading and conductance calculation
+    This class only processes the received conductance values
     """
     
     def __init__(self, port: str = None, baudrate: int = 9600):
@@ -99,7 +100,7 @@ class GSRSensor:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
                     line = self.serial_connection.readline().decode('utf-8').strip()
                     
-                    if line and line.startswith("GSR:"):
+                    if line and line.startswith("GSR_CONDUCTANCE:"):
                         self._parse_gsr_data(line)
                 
                 time.sleep(0.01)  # Small delay to prevent CPU spinning
@@ -111,54 +112,46 @@ class GSRSensor:
     def _parse_gsr_data(self, data_line: str):
         """Parse GSR data from Arduino serial output"""
         try:
-            # Expected format: "GSR:512,CONDUCTANCE:25.45"
-            parts = data_line.split(',')
+            # Expected format: "GSR_CONDUCTANCE:25.45"
+            conductance_part = data_line.split(':')[1]
+            conductance = float(conductance_part)
             
-            if len(parts) >= 2:
-                # Parse ADC value
-                adc_part = parts[0].split(':')[1]
-                adc_value = int(adc_part)
-                
-                # Parse conductance
-                conductance_part = parts[1].split(':')[1]
-                conductance = float(conductance_part)
-                
-                # Validate conductance range
-                valid = (self.config['min_conductance'] <= conductance <= self.config['max_conductance'])
-                
-                # Create reading object
-                reading = GSRReading(
-                    adc_value=adc_value,
-                    conductance=conductance,
-                    timestamp=time.time(),
-                    valid=valid
-                )
-                
-                # Update latest reading
-                self.latest_reading = reading
-                
-                # Add to history
-                self.readings_history.append(reading)
-                if len(self.readings_history) > self.max_history:
-                    self.readings_history.pop(0)
-                
-                # Add to queue for external consumers
+            # Validate conductance range
+            valid = (self.config['min_conductance'] <= conductance <= self.config['max_conductance'])
+            
+            # Create reading object (ADC value not needed since Arduino computed conductance)
+            reading = GSRReading(
+                adc_value=0,  # Not used since Arduino computed conductance
+                conductance=conductance,
+                timestamp=time.time(),
+                valid=valid
+            )
+            
+            # Update latest reading
+            self.latest_reading = reading
+            
+            # Add to history
+            self.readings_history.append(reading)
+            if len(self.readings_history) > self.max_history:
+                self.readings_history.pop(0)
+            
+            # Add to queue for external consumers
+            try:
+                self.data_queue.put_nowait(reading)
+            except queue.Full:
+                # Remove oldest and add new
                 try:
+                    self.data_queue.get_nowait()
                     self.data_queue.put_nowait(reading)
-                except queue.Full:
-                    # Remove oldest and add new
-                    try:
-                        self.data_queue.get_nowait()
-                        self.data_queue.put_nowait(reading)
-                    except queue.Empty:
-                        pass
-                
-                # Optional data logging
-                if self.config['log_data']:
-                    self._log_reading(reading)
-                
-                logger.debug(f"GSR: ADC={adc_value}, Conductance={conductance:.2f}μS, Valid={valid}")
-                
+                except queue.Empty:
+                    pass
+            
+            # Optional data logging
+            if self.config['log_data']:
+                self._log_reading(reading)
+            
+            logger.debug(f"GSR Conductance: {conductance:.2f}μS, Valid={valid}")
+            
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse GSR data: {data_line} - {e}")
 
