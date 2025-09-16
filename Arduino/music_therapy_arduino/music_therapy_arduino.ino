@@ -287,12 +287,4 @@ void sendDataToPi() {
     Serial.println("STATUS:IDLE");
     Serial.println("LCD:READY");
   }
-  
-  // Send baseline data if available
-  if (gsrBaseline > 0 && hrBaseline > 0) {
-    Serial.print("BASELINE_DATA:GSR:");
-    Serial.print(gsrBaseline, 2);
-    Serial.print(",HR:");
-    Serial.println(hrBaseline, 2);
-  }
 }
