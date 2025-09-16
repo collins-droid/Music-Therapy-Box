@@ -17,7 +17,7 @@ from sensors.gsr_module import GSRSensor
 from sensors.hr_module import HRSensor  
 from display.lcd_module import LCDDisplay
 from audio.music_player import MusicPlayer
-from ml.stress_predictor import StressPredictor
+from model.stress_predictor import StressPredictor
 from utils.data_collector import DataCollector
 from utils.feature_extractor import FeatureExtractor
 
@@ -34,7 +34,6 @@ class SystemState(Enum):
 class ButtonType(Enum):
     START = "START"
     STOP = "STOP"
-    NEXT = "NEXT"
 
 @dataclass
 class ButtonEvent:
@@ -396,9 +395,6 @@ class MusicTherapyBox:
                 if button_event.button == ButtonType.STOP:
                     self.stop_session()
                     return
-                elif button_event.button == ButtonType.NEXT:
-                    self.music_player.stop()
-                    return  # Exit to select next song
                     
             except queue.Empty:
                 pass
@@ -493,8 +489,6 @@ class MusicTherapyBox:
             elif button_event.button == ButtonType.STOP:
                 if self.state in [SystemState.SESSION_ACTIVE, SystemState.CALIBRATING]:
                     self.stop_session()
-                    
-            # NEXT button is handled within playback loop
             
         except queue.Empty:
             pass

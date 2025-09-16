@@ -9,7 +9,7 @@ import random
 import time
 import logging
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
