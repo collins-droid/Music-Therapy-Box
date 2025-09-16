@@ -268,7 +268,7 @@ class HRSensor:
         Args:
             timeout: Maximum time to wait for thread to stop
         """
-        if not self.running:
+        if not hasattr(self, 'running') or not self.running:
             return
         
         logger.info("Stopping HR sensor...")

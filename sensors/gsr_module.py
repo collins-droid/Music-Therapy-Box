@@ -1,194 +1,233 @@
 #!/usr/bin/env python3
 """
 GSR Sensor Module for Music Therapy Box
-Receives GSR sensor data from Arduino via serial communication
-Compatible with the main script's expected interface
+Receives GSR data from Arduino via serial communication
+Handles conductance conversion and data processing
 """
 
 import serial
 import time
+import logging
 import threading
 import queue
-import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 @dataclass
 class GSRReading:
-    value: int
+    adc_value: int
+    conductance: float
     timestamp: float
-    raw_data: str
+    valid: bool
 
 class GSRSensor:
-    def __init__(self, port: str = "/dev/ttyUSB0", baudrate: int = 9600):
+    """
+    GSR sensor class that communicates with Arduino via serial
+    Handles conductance conversion and data collection
+    """
+    
+    def __init__(self, port: str = None, baudrate: int = 9600):
         """
-        Initialize GSR sensor with serial communication
+        Initialize GSR sensor
         
         Args:
-            port: Serial port for Arduino connection
-            baudrate: Serial communication speed
+            port: Serial port for Arduino communication (auto-detect if None)
+            baudrate: Serial communication baud rate
         """
+        if port is None:
+            # Auto-detect port based on OS
+            import platform
+            if platform.system() == "Windows":
+                port = "COM3"  # Default Windows COM port
+            else:
+                port = "/dev/ttyUSB0"  # Default Linux port
+        
         self.port = port
         self.baudrate = baudrate
         self.serial_connection = None
         self.connected = False
         self.running = False
         
-        # Threading for continuous data collection
-        self.read_thread = None
-        self.data_queue = queue.Queue(maxsize=1000)
-        
         # Data storage
         self.latest_reading = None
         self.readings_history = []
-        self.max_history = 1000  # Keep last 1000 readings
+        self.max_history = 1000
+        
+        # Threading
+        self._thread = None
+        self._stop_event = threading.Event()
+        self.data_queue = queue.Queue(maxsize=100)
         
         # Configuration
         self.config = {
-            'timeout': 1,
-            'retry_attempts': 3,
             'log_data': True,
-            'log_file': 'gsr_data.txt'
+            'log_file': 'gsr_data.txt',
+            'calibration_samples': 100,  # Samples for baseline calculation
+            'min_conductance': 0.1,      # Minimum valid conductance (μS)
+            'max_conductance': 100.0     # Maximum valid conductance (μS)
         }
         
         # Initialize connection
-        self._connect()
+        self._initialize_connection()
 
-    def _connect(self) -> bool:
-        """Establish serial connection to Arduino"""
-        for attempt in range(self.config['retry_attempts']):
-            try:
-                logger.info(f"Attempting to connect to GSR sensor on {self.port} (attempt {attempt + 1})")
-                
-                self.serial_connection = serial.Serial(
-                    port=self.port,
-                    baudrate=self.baudrate,
-                    timeout=self.config['timeout']
-                )
-                
-                # Test connection by waiting for valid data
-                test_timeout = time.time() + 5  # 5 second timeout
-                while time.time() < test_timeout:
-                    if self.serial_connection.in_waiting > 0:
-                        test_data = self.serial_connection.readline().decode('utf-8').strip()
-                        if test_data.startswith("GSR:"):
-                            self.connected = True
-                            logger.info("GSR sensor connected successfully")
-                            self._start_reading_thread()
-                            return True
-                    time.sleep(0.1)
-                
-                # If we get here, no valid data received
-                self.serial_connection.close()
-                logger.warning(f"No valid GSR data received on attempt {attempt + 1}")
-                
-            except Exception as e:
-                logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
-                time.sleep(1)  # Wait before retry
+    def _initialize_connection(self) -> bool:
+        """Initialize serial connection to Arduino"""
+        try:
+            self.serial_connection = serial.Serial(
+                self.port, 
+                self.baudrate, 
+                timeout=1
+            )
+            self.connected = True
+            logger.info(f"GSR sensor connected on {self.port}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to connect to GSR sensor: {e}")
+            self.connected = False
+            return False
+
+    def _run_sensor(self):
+        """Main sensor reading loop (runs in background thread)"""
+        logger.info("GSR sensor thread started")
         
-        logger.error("Failed to connect to GSR sensor after all attempts")
-        self.connected = False
-        return False
-
-    def _start_reading_thread(self):
-        """Start background thread for continuous data reading"""
-        if not self.read_thread or not self.read_thread.is_alive():
-            self.running = True
-            self.read_thread = threading.Thread(target=self._continuous_read, daemon=True)
-            self.read_thread.start()
-            logger.info("GSR reading thread started")
-
-    def _continuous_read(self):
-        """Background thread function for continuous data reading"""
-        while self.running and self.connected:
+        while not self._stop_event.is_set() and self.running:
             try:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
-                    raw_data = self.serial_connection.readline().decode('utf-8').strip()
+                    line = self.serial_connection.readline().decode('utf-8').strip()
                     
-                    if raw_data.startswith("GSR:"):
-                        try:
-                            gsr_value = int(raw_data.split(":")[1])
-                            timestamp = time.time()
-                            
-                            reading = GSRReading(
-                                value=gsr_value,
-                                timestamp=timestamp,
-                                raw_data=raw_data
-                            )
-                            
-                            # Update latest reading
-                            self.latest_reading = reading
-                            
-                            # Add to history (maintain max size)
-                            self.readings_history.append(reading)
-                            if len(self.readings_history) > self.max_history:
-                                self.readings_history.pop(0)
-                            
-                            # Add to queue for external consumers
-                            try:
-                                self.data_queue.put_nowait(reading)
-                            except queue.Full:
-                                # Remove oldest item and add new one
-                                try:
-                                    self.data_queue.get_nowait()
-                                    self.data_queue.put_nowait(reading)
-                                except queue.Empty:
-                                    pass
-                            
-                            # Optional data logging
-                            if self.config['log_data']:
-                                self._log_reading(reading)
-                                
-                        except ValueError as e:
-                            logger.warning(f"Error parsing GSR value from: {raw_data} - {e}")
-                    
-                    elif raw_data.startswith("BUTTON:"):
-                        # Handle button data if received on same serial line
-                        logger.debug(f"Button data received: {raw_data}")
+                    if line and line.startswith("GSR:"):
+                        self._parse_gsr_data(line)
                 
                 time.sleep(0.01)  # Small delay to prevent CPU spinning
                 
             except Exception as e:
-                logger.error(f"Error in GSR reading thread: {e}")
-                # Try to reconnect
-                if not self._reconnect():
-                    break
+                logger.error(f"Error in GSR sensor thread: {e}")
                 time.sleep(0.1)
 
-    def _reconnect(self) -> bool:
-        """Attempt to reconnect to the sensor"""
-        logger.info("Attempting to reconnect to GSR sensor...")
-        self.connected = False
-        
-        if self.serial_connection:
-            try:
-                self.serial_connection.close()
-            except:
-                pass
-        
-        return self._connect()
+    def _parse_gsr_data(self, data_line: str):
+        """Parse GSR data from Arduino serial output"""
+        try:
+            # Expected format: "GSR:512,CONDUCTANCE:25.45"
+            parts = data_line.split(',')
+            
+            if len(parts) >= 2:
+                # Parse ADC value
+                adc_part = parts[0].split(':')[1]
+                adc_value = int(adc_part)
+                
+                # Parse conductance
+                conductance_part = parts[1].split(':')[1]
+                conductance = float(conductance_part)
+                
+                # Validate conductance range
+                valid = (self.config['min_conductance'] <= conductance <= self.config['max_conductance'])
+                
+                # Create reading object
+                reading = GSRReading(
+                    adc_value=adc_value,
+                    conductance=conductance,
+                    timestamp=time.time(),
+                    valid=valid
+                )
+                
+                # Update latest reading
+                self.latest_reading = reading
+                
+                # Add to history
+                self.readings_history.append(reading)
+                if len(self.readings_history) > self.max_history:
+                    self.readings_history.pop(0)
+                
+                # Add to queue for external consumers
+                try:
+                    self.data_queue.put_nowait(reading)
+                except queue.Full:
+                    # Remove oldest and add new
+                    try:
+                        self.data_queue.get_nowait()
+                        self.data_queue.put_nowait(reading)
+                    except queue.Empty:
+                        pass
+                
+                # Optional data logging
+                if self.config['log_data']:
+                    self._log_reading(reading)
+                
+                logger.debug(f"GSR: ADC={adc_value}, Conductance={conductance:.2f}μS, Valid={valid}")
+                
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Failed to parse GSR data: {data_line} - {e}")
 
     def _log_reading(self, reading: GSRReading):
         """Log GSR reading to file"""
         try:
             with open(self.config['log_file'], "a") as f:
                 timestamp_str = datetime.fromtimestamp(reading.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                f.write(f"{timestamp_str},{reading.value}\n")
+                f.write(f"{timestamp_str},{reading.adc_value},{reading.conductance:.2f},{reading.valid}\n")
         except Exception as e:
             logger.warning(f"Failed to log GSR data: {e}")
 
-    def read_gsr(self) -> Optional[int]:
+    def start_sensor(self) -> bool:
         """
-        Get the latest GSR reading (expected by main script)
+        Start the GSR sensor (expected by main script)
         
         Returns:
-            Latest GSR value or None if no data available
+            True if sensor started successfully
         """
-        if self.latest_reading:
-            return self.latest_reading.value
+        if not self.connected:
+            if not self._initialize_connection():
+                return False
+        
+        if self.running:
+            logger.warning("GSR sensor is already running")
+            return True
+        
+        try:
+            self.running = True
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run_sensor, daemon=True)
+            self._thread.start()
+            
+            logger.info("GSR sensor started successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to start GSR sensor: {e}")
+            self.running = False
+            return False
+
+    def stop_sensor(self, timeout: float = 2.0):
+        """
+        Stop the GSR sensor
+        
+        Args:
+            timeout: Maximum time to wait for thread to stop
+        """
+        if not self.running:
+            return
+        
+        logger.info("Stopping GSR sensor...")
+        self.running = False
+        self._stop_event.set()
+        
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout)
+        
+        logger.info("GSR sensor stopped")
+
+    def read_gsr(self) -> Optional[float]:
+        """
+        Get the latest GSR conductance reading (expected by main script)
+        
+        Returns:
+            Latest conductance value in microsiemens or None if no data available
+        """
+        if self.latest_reading and self.latest_reading.valid:
+            return self.latest_reading.conductance
         return None
 
     def get_reading(self) -> Optional[GSRReading]:
@@ -233,127 +272,124 @@ class GSRSensor:
         Check if sensor is connected (expected by main script)
         
         Returns:
-            True if sensor is connected and receiving data
+            True if sensor is connected and running
         """
-        # Check connection status and recent data
-        if not self.connected:
+        if not self.connected or not self.running:
             return False
         
+        # Check if we have recent data
         if self.latest_reading:
-            # Consider connected if we have recent data (within last 5 seconds)
-            return (time.time() - self.latest_reading.timestamp) < 5.0
+            return (time.time() - self.latest_reading.timestamp) < 10.0
         
         return False
 
-    def get_data_rate(self) -> float:
+    def calculate_baseline(self, duration_seconds: int = 10) -> Optional[float]:
         """
-        Calculate current data reception rate
+        Calculate baseline conductance from recent readings
         
+        Args:
+            duration_seconds: Duration to use for baseline calculation
+            
         Returns:
-            Readings per second
+            Average conductance value or None if insufficient data
         """
-        if len(self.readings_history) < 2:
-            return 0.0
+        readings = self.get_readings_in_timeframe(duration_seconds)
+        valid_readings = [r for r in readings if r.valid]
         
-        recent_readings = self.get_readings_in_timeframe(10)  # Last 10 seconds
-        if len(recent_readings) < 2:
-            return 0.0
+        if len(valid_readings) < 10:  # Need at least 10 valid readings
+            return None
         
-        time_span = recent_readings[-1].timestamp - recent_readings[0].timestamp
-        return len(recent_readings) / time_span if time_span > 0 else 0.0
+        conductance_values = [r.conductance for r in valid_readings]
+        return np.mean(conductance_values)
+
+    def detect_stress_change(self, baseline: float, threshold: float = 0.3) -> bool:
+        """
+        Detect significant change from baseline
+        
+        Args:
+            baseline: Baseline conductance value
+            threshold: Relative change threshold (0.3 = 30% change)
+            
+        Returns:
+            True if significant change detected
+        """
+        if not self.latest_reading or not self.latest_reading.valid:
+            return False
+        
+        current = self.latest_reading.conductance
+        relative_change = abs(current - baseline) / baseline
+        
+        return relative_change > threshold
 
     def get_statistics(self) -> dict:
         """
         Get GSR statistics for recent readings
         
         Returns:
-            Dictionary with min, max, avg, std values
+            Dictionary with min, max, avg values for conductance
         """
         recent_readings = self.get_readings_in_timeframe(60)  # Last minute
+        valid_readings = [r for r in recent_readings if r.valid]
         
-        if not recent_readings:
-            return {'count': 0, 'min': 0, 'max': 0, 'avg': 0, 'std': 0}
+        if not valid_readings:
+            return {'count': 0, 'error': 'No valid readings'}
         
-        values = [r.value for r in recent_readings]
+        conductance_values = [r.conductance for r in valid_readings]
         
         import statistics
         return {
-            'count': len(values),
-            'min': min(values),
-            'max': max(values),
-            'avg': statistics.mean(values),
-            'std': statistics.stdev(values) if len(values) > 1 else 0
+            'count': len(valid_readings),
+            'conductance_min': min(conductance_values),
+            'conductance_max': max(conductance_values),
+            'conductance_avg': statistics.mean(conductance_values),
+            'valid_rate': len(valid_readings) / len(recent_readings) if recent_readings else 0.0
         }
-
-    def process_gsr_data(self, gsr_value: int):
-        """
-        Process GSR data with categorization (from your original script)
-        
-        Args:
-            gsr_value: GSR sensor value
-        """
-        logger.info(f"GSR Value: {gsr_value}")
-        
-        if gsr_value > 500:
-            logger.info("High GSR detected!")
-        elif gsr_value < 200:
-            logger.info("Low GSR detected!")
-        else:
-            logger.debug("Normal GSR range")
-
-    def stop(self):
-        """Stop the GSR sensor and clean up resources"""
-        logger.info("Stopping GSR sensor...")
-        self.running = False
-        
-        if self.read_thread and self.read_thread.is_alive():
-            self.read_thread.join(timeout=2)
-        
-        if self.serial_connection:
-            try:
-                self.serial_connection.close()
-            except:
-                pass
-        
-        self.connected = False
-        logger.info("GSR sensor stopped")
 
     def __del__(self):
         """Cleanup when object is destroyed"""
-        self.stop()
+        self.stop_sensor()
+        if self.serial_connection:
+            self.serial_connection.close()
 
 # Standalone testing function
-def test_gsr_sensor():
-    """Test function for standalone operation (matches your original script)"""
+def test_gsr_sensor(duration: int = 30):
+    """
+    Test function for standalone operation
+    
+    Args:
+        duration: Duration in seconds to read from sensor
+    """
+    print('GSR sensor starting...')
+    
     sensor = GSRSensor()
     
-    if not sensor.is_connected():
-        print("Failed to connect to GSR sensor!")
+    if not sensor.start_sensor():
+        print("Failed to start GSR sensor!")
         return
     
     try:
-        print("Starting GSR data collection...")
-        print("Press Ctrl+C to stop")
-        
-        while True:
+        start_time = time.time()
+        while time.time() - start_time < duration:
             reading = sensor.get_reading()
             if reading:
-                sensor.process_gsr_data(reading.value)
-                
-                # Show statistics every 10 seconds
-                if int(reading.timestamp) % 10 == 0:
-                    stats = sensor.get_statistics()
-                    print(f"Stats: {stats}")
+                print(f"GSR: ADC={reading.adc_value}, Conductance={reading.conductance:.2f}μS, Valid={reading.valid}")
             
-            time.sleep(0.1)
-    
+            time.sleep(1)
+            
     except KeyboardInterrupt:
-        print("\nStopping GSR data collection...")
+        print('Keyboard interrupt detected, exiting...')
     
     finally:
-        sensor.stop()
-        print("GSR sensor disconnected.")
+        sensor.stop_sensor()
+        print('GSR sensor stopped!')
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Read and print data from GSR sensor")
+    parser.add_argument("-t", "--time", type=int, default=30,
+                        help="duration in seconds to read from sensor, default 30")
+    args = parser.parse_args()
+    
     # Run standalone test
-    test_gsr_sensor()
+    test_gsr_sensor(duration=args.time)

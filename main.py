@@ -12,11 +12,10 @@ import logging
 from enum import Enum
 from dataclasses import dataclass
 
-# Import sensor and other modules (to be implemented separately)
+# Import sensor and other modules
 from sensors.gsr_module import GSRSensor
 from sensors.hr_module import HRSensor  
-from display.oled_module import OLEDDisplay
-from display.led_module import LEDController
+from display.lcd_module import LCDDisplay
 from audio.music_player import MusicPlayer
 from ml.stress_predictor import StressPredictor
 from utils.data_collector import DataCollector
@@ -56,8 +55,7 @@ class MusicTherapyBox:
         # Hardware modules
         self.gsr_sensor = None
         self.hr_sensor = None
-        self.oled = None
-        self.leds = None
+        self.lcd = None
         self.music_player = None
         self.stress_predictor = None
         self.data_collector = None
@@ -72,7 +70,7 @@ class MusicTherapyBox:
             'calibration_duration': 10,  # seconds
             'sensor_window': 60,         # seconds
             'sampling_rate': 10,         # Hz (100ms intervals)
-            'serial_port': '/dev/ttyUSB0',
+            'serial_port': self._get_serial_port(),
             'serial_baudrate': 9600,
             'music_folders': {
                 'stress': 'music/stress_relief/',
@@ -80,6 +78,14 @@ class MusicTherapyBox:
                 'neutral': 'music/neutral/'
             }
         }
+
+    def _get_serial_port(self) -> str:
+        """Get appropriate serial port based on operating system"""
+        import platform
+        if platform.system() == "Windows":
+            return "COM3"  # Default Windows COM port
+        else:
+            return "/dev/ttyUSB0"  # Default Linux port
 
     def initialize_hardware(self) -> bool:
         """Initialize all hardware modules"""
@@ -90,10 +96,9 @@ class MusicTherapyBox:
             self.gsr_sensor = GSRSensor()
             self.hr_sensor = HRSensor()
             
-            # Initialize display modules
-            self.oled = OLEDDisplay()
-            self.leds = LEDController()
-            
+            # Initialize display module (LCD only - LEDs controlled by Arduino)
+            self.lcd = LCDDisplay()
+           
             # Initialize audio module
             self.music_player = MusicPlayer(self.config['music_folders'])
             
@@ -108,15 +113,14 @@ class MusicTherapyBox:
             if not all([
                 self.gsr_sensor.is_connected(),
                 self.hr_sensor.is_connected(),
-                self.oled.is_ready(),
-                self.leds.test(),
+                self.lcd.is_ready(),
                 self.music_player.is_ready(),
                 self.stress_predictor.is_loaded()
             ]):
                 raise Exception("One or more hardware modules failed initialization")
             
             logger.info("Hardware initialization successful")
-            self.oled.display("System Ready")
+            self.lcd.display("System Ready")
             return True
             
         except Exception as e:
@@ -144,15 +148,16 @@ class MusicTherapyBox:
             return False
 
     def _serial_reader(self):
-        """Background thread to read button events from Arduino"""
+        """Background thread to read messages from Arduino"""
         while self.running:
             try:
                 if self.arduino_serial and self.arduino_serial.in_waiting > 0:
                     line = self.arduino_serial.readline().decode('utf-8').strip()
                     
                     if line:
-                        # Expected format: "BUTTON:START" or "BUTTON:STOP" or "BUTTON:NEXT"
+                        # Handle different message types from Arduino
                         if line.startswith("BUTTON:"):
+                            # Button events
                             button_name = line.split(":")[1]
                             
                             if button_name in [b.value for b in ButtonType]:
@@ -162,6 +167,34 @@ class MusicTherapyBox:
                                 )
                                 self.button_queue.put(button_event)
                                 logger.debug(f"Button event received: {button_name}")
+                        
+                        elif line.startswith("LCD:"):
+                            # LCD display messages
+                            self._handle_lcd_message(line)
+                        
+                        elif line.startswith("BASELINE:"):
+                            # Baseline data from Arduino
+                            self._handle_baseline_data(line)
+                        
+                        elif line.startswith("BASELINE_DATA:"):
+                            # Ongoing baseline data
+                            self._handle_baseline_data(line)
+                        
+                        elif line.startswith("BASELINE_PROGRESS:"):
+                            # Baseline collection progress
+                            self._handle_baseline_progress(line)
+                        
+                        elif line.startswith("CALIBRATION:"):
+                            # Calibration status messages
+                            self._handle_calibration_status(line)
+                        
+                        elif line.startswith("SESSION:"):
+                            # Session status messages
+                            self._handle_session_status(line)
+                        
+                        elif line.startswith("STATUS:"):
+                            # General status messages
+                            self._handle_status_message(line)
                 
                 time.sleep(0.01)  # Small delay to prevent CPU spinning
                 
@@ -169,32 +202,125 @@ class MusicTherapyBox:
                 logger.warning(f"Serial read error: {e}")
                 time.sleep(0.1)
 
+    def _handle_lcd_message(self, message: str):
+        """Handle LCD display messages from Arduino"""
+        try:
+            # Use the LCD module's Arduino command handler
+            self.lcd.handle_arduino_lcd_command(message)
+        except Exception as e:
+            logger.error(f"Error handling LCD message: {e}")
+
+    def _handle_baseline_data(self, message: str):
+        """Handle baseline data from Arduino"""
+        try:
+            if message.startswith("BASELINE:"):
+                # Parse baseline data: "BASELINE:GSR:123.45,HR:75.2"
+                data_part = message.split(":", 1)[1]  # "GSR:123.45,HR:75.2"
+                parts = data_part.split(",")
+                
+                gsr_value = None
+                hr_value = None
+                
+                for part in parts:
+                    if part.startswith("GSR:"):
+                        gsr_value = float(part.split(":")[1])
+                    elif part.startswith("HR:"):
+                        hr_value = float(part.split(":")[1])
+                
+                if gsr_value is not None and hr_value is not None:
+                    self.baseline_data = {
+                        'gsr_baseline': gsr_value,
+                        'hr_baseline': hr_value,
+                        'timestamp': time.time()
+                    }
+                    logger.info(f"Baseline data received - GSR: {gsr_value:.2f}, HR: {hr_value:.2f}")
+                    
+                    # Show baseline data on LCD
+                    self.lcd.show_baseline_received(gsr_value, hr_value)
+            
+            elif message.startswith("BASELINE_DATA:"):
+                # Ongoing baseline data updates
+                logger.debug(f"Baseline data update: {message}")
+                
+        except Exception as e:
+            logger.error(f"Error handling baseline data: {e}")
+
+    def _handle_baseline_progress(self, message: str):
+        """Handle baseline collection progress"""
+        try:
+            # Format: "BASELINE_PROGRESS:10/50"
+            progress_part = message.split(":")[1]  # "10/50"
+            current, total = progress_part.split("/")
+            current = int(current)
+            total = int(total)
+            
+            logger.debug(f"Baseline progress: {current}/{total}")
+            
+            # Show progress on LCD
+            self.lcd.show_baseline_collection(current, total)
+            
+        except Exception as e:
+            logger.error(f"Error handling baseline progress: {e}")
+
+    def _handle_calibration_status(self, message: str):
+        """Handle calibration status messages"""
+        try:
+            if message == "CALIBRATION:STARTED":
+                logger.info("Arduino calibration started")
+            elif message == "CALIBRATION:COMPLETE":
+                logger.info("Arduino calibration completed")
+            else:
+                logger.debug(f"Calibration status: {message}")
+        except Exception as e:
+            logger.error(f"Error handling calibration status: {e}")
+
+    def _handle_session_status(self, message: str):
+        """Handle session status messages"""
+        try:
+            if message == "SESSION:STARTED":
+                logger.info("Arduino session started")
+            else:
+                logger.debug(f"Session status: {message}")
+        except Exception as e:
+            logger.error(f"Error handling session status: {e}")
+
+    def _handle_status_message(self, message: str):
+        """Handle general status messages"""
+        try:
+            logger.debug(f"Status message: {message}")
+        except Exception as e:
+            logger.error(f"Error handling status message: {e}")
+
     def run_calibration(self) -> bool:
         """Run sensor calibration sequence"""
         try:
             logger.info("Starting calibration...")
             self.state = SystemState.CALIBRATING
             
-            # Visual feedback
-            self.leds.turn_on('yellow')
-            self.oled.display("Calibration in progress...\nRemain still for 10s")
+            # Wait for Arduino to complete calibration and send baseline data
+            # The Arduino will handle the actual calibration process
+            calibration_timeout = 15  # seconds
+            start_time = time.time()
             
-            # Collect calibration data
-            calibration_data = self.data_collector.collect_baseline(
-                gsr_sensor=self.gsr_sensor,
-                hr_sensor=self.hr_sensor,
-                duration=self.config['calibration_duration']
-            )
+            logger.info("Waiting for Arduino calibration to complete...")
+            self.lcd.show_waiting_for_arduino()
             
-            if not calibration_data or len(calibration_data) < 10:
-                raise Exception("Insufficient calibration data collected")
+            while time.time() - start_time < calibration_timeout:
+                # Check if we received baseline data from Arduino
+                if self.baseline_data is not None:
+                    logger.info("Baseline data received from Arduino")
+                    break
+                
+                time.sleep(0.1)
             
-            # Compute baseline
-            self.baseline_data = self.feature_extractor.compute_baseline(calibration_data)
+            if self.baseline_data is None:
+                raise Exception("Arduino calibration timeout - no baseline data received")
+            
+            # Use Arduino baseline data
+            logger.info(f"Using Arduino baseline - GSR: {self.baseline_data['gsr_baseline']:.2f}, HR: {self.baseline_data['hr_baseline']:.2f}")
             
             # Cleanup
-            self.leds.turn_off('yellow')
-            self.oled.display("Calibration complete!\nStarting session...")
+            self.lcd.display("Calibration complete!\nStarting session...")
             
             logger.info("Calibration completed successfully")
             time.sleep(2)  # Brief pause before session
@@ -202,8 +328,7 @@ class MusicTherapyBox:
             
         except Exception as e:
             logger.error(f"Calibration failed: {e}")
-            self.leds.turn_off('yellow')
-            self.oled.display("Calibration failed!\nPlease try again.")
+            self.lcd.display("Calibration failed!\nPlease try again.")
             self.state = SystemState.IDLE
             return False
 
@@ -213,9 +338,8 @@ class MusicTherapyBox:
         self.state = SystemState.SESSION_ACTIVE
         self.session_active = True
         
-        # Visual feedback
-        self.leds.turn_on('red')
-        self.oled.display("Therapy session started\nAnalyzing your state...")
+        # Visual feedback (LEDs controlled by Arduino)
+        self.lcd.display("Therapy session started\nAnalyzing your state...")
         
         try:
             while self.session_active and self.running:
@@ -295,7 +419,7 @@ class MusicTherapyBox:
     def _perform_re_evaluation(self):
         """Re-evaluate stress level before current song ends"""
         logger.info("Re-evaluating stress level...")
-        self.oled.display("Re-evaluating your state...", line=2)
+        self.lcd.display("Re-evaluating your state...")
         
         try:
             # Quick sensor reading
@@ -330,7 +454,7 @@ class MusicTherapyBox:
         return mapping.get(prediction.lower(), 'neutral')
 
     def _update_display_for_prediction(self, prediction: str, confidence: float):
-        """Update OLED display based on prediction"""
+        """Update LCD display based on prediction"""
         status_messages = {
             'stress': f"Stress detected ({confidence:.1f})\nPlaying calming music",
             'no_stress': f"Relaxed state ({confidence:.1f})\nPlaying gentle music",
@@ -339,7 +463,7 @@ class MusicTherapyBox:
         
         category = self._map_prediction_to_music(prediction)
         message = status_messages.get(category, f"State: {prediction}\nPlaying music...")
-        self.oled.display(message)
+        self.lcd.display(message)
 
     def stop_session(self):
         """Stop the current therapy session"""
@@ -352,8 +476,7 @@ class MusicTherapyBox:
 
     def _cleanup_session(self):
         """Clean up session resources"""
-        self.leds.turn_off('red')
-        self.oled.display("Session stopped.\nPress START for new session")
+        self.lcd.display("Session stopped.\nPress START for new session")
         self.state = SystemState.IDLE
         logger.info("Session cleanup completed")
 
@@ -404,11 +527,8 @@ class MusicTherapyBox:
         if self.music_player:
             self.music_player.stop()
             
-        if self.leds:
-            self.leds.turn_off_all()
-            
-        if self.oled:
-            self.oled.display("System shutting down...")
+        if self.lcd:
+            self.lcd.display("System shutting down...")
             
         if self.arduino_serial:
             self.arduino_serial.close()
@@ -430,7 +550,7 @@ def main():
             return 1
         
         # Show ready state
-        therapy_box.oled.display("Music Therapy Box\nPress START to begin")
+        therapy_box.lcd.display("Music Therapy Box\nPress START to begin")
         logger.info("System ready. Press START button to begin.")
         
         # Run main loop
