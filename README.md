@@ -4,7 +4,7 @@ A Raspberry Pi 4B-powered Music Therapy Box that uses machine learning and biose
 
 ## System Architecture
 
-![System Architecture](sys_arch.png)
+![System Architecture](images/sys_arch.png)
 
 *System Architecture Diagram - Shows the complete hardware and software components, data flow, and communication protocols between Arduino UNO and Raspberry Pi 4B.*
 
