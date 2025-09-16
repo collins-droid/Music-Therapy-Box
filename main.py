@@ -73,8 +73,7 @@ class MusicTherapyBox:
             'serial_baudrate': 9600,
             'music_folders': {
                 'stress': 'music/stress_relief/',
-                'no_stress': 'music/calming/',
-                'neutral': 'music/neutral/'
+                'no_stress': 'music/calming/'
             }
         }
 
@@ -441,20 +440,15 @@ class MusicTherapyBox:
         """Map ML prediction to music category"""
         mapping = {
             'stress': 'stress',
-            'high_stress': 'stress',
-            'no_stress': 'no_stress',
-            'low_stress': 'no_stress',
-            'relaxed': 'no_stress',
-            'neutral': 'neutral'
+            'no_stress': 'no_stress'
         }
-        return mapping.get(prediction.lower(), 'neutral')
+        return mapping.get(prediction.lower(), 'no_stress')  # Default to calming music
 
     def _update_display_for_prediction(self, prediction: str, confidence: float):
         """Update LCD display based on prediction"""
         status_messages = {
             'stress': f"Stress detected ({confidence:.1f})\nPlaying calming music",
-            'no_stress': f"Relaxed state ({confidence:.1f})\nPlaying gentle music",
-            'neutral': f"Neutral state ({confidence:.1f})\nPlaying ambient music"
+            'no_stress': f"Relaxed state ({confidence:.1f})\nPlaying gentle music"
         }
         
         category = self._map_prediction_to_music(prediction)
