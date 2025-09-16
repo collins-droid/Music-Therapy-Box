@@ -2,6 +2,12 @@
 
 A Raspberry Pi 4B-powered Music Therapy Box that uses machine learning and biosensors (MAX30102 + GSR) to detect stress levels and play curated music in real time. Features Arduino button control, calibration, LCD feedback, and adaptive music selection logic.
 
+## System Architecture
+
+![System Architecture](sys_arch.png)
+
+*System Architecture Diagram - Shows the complete hardware and software components, data flow, and communication protocols between Arduino UNO and Raspberry Pi 4B.*
+
 ## System Startup Flow
 
 1. Run: `python main.py`
@@ -32,7 +38,7 @@ A Raspberry Pi 4B-powered Music Therapy Box that uses machine learning and biose
     ↓
 14. User presses STOP → Session ends
 
-##  Complete Post-Prediction Flow
+## Complete Post-Prediction Flow
 
 After the system predicts stress level, here's the detailed process:
 
@@ -118,7 +124,7 @@ while self.music_player.is_playing() and self.session_active:
 5. **Visual Feedback**: LCD shows current state and confidence
 6. **Seamless Experience**: Continuous loop until user stops
 
-###  Complete Cycle:
+### Complete Cycle:
 
 ```
 Collect 60s Data → Extract Features → Predict Stress → Select Music → Play Song → 
@@ -160,6 +166,41 @@ The system uses **binary classification** with 2 music categories:
 - **Accuracy**: Binary stress/no-stress classification
 - **Model File**: `model/random_forest/stress_random_forest.pkl`
 
+### How Random Forest Works
+
+Random Forest is an ensemble machine learning algorithm that combines multiple decision trees to make more accurate predictions. Here's how it works in our stress detection system:
+
+**1. Multiple Decision Trees**
+- Creates 200 individual decision trees (n_estimators=200)
+- Each tree is trained on a random subset of the training data
+- Each tree uses a random subset of features for each split
+
+**2. Training Process**
+- Each tree learns different patterns in the HR and EDA data
+- Trees vote on the final prediction (stress vs no_stress)
+- Majority vote determines the final classification
+
+**3. Feature Importance**
+- Random Forest calculates which features are most important
+- HR features (mean, std, range) and EDA features (mean, slope) typically rank highest
+- Helps understand what physiological signals indicate stress
+
+**4. Confidence Scoring**
+- Provides probability scores for each prediction
+- Higher confidence indicates more certain classification
+- Used to determine music selection reliability
+
+**5. Advantages for Stress Detection**
+- Handles noise well (important for sensor data)
+- Reduces overfitting through ensemble averaging
+- Provides interpretable feature importance
+- Works well with small datasets (1000 samples)
+
+**6. Binary Classification**
+- Output: 0 (no_stress) or 1 (stress)
+- Threshold-based decision making
+- Maps directly to music categories
+
 ## Getting Started
 
 1. **Hardware Setup**: Connect Arduino and Pi components
@@ -168,9 +209,9 @@ The system uses **binary classification** with 2 music categories:
 4. **Run**: `python main.py`
 5. **Use**: Press START button to begin therapy session
 
-The system creates a **continuous feedback loop** where the music adapts to your changing stress levels in real-time!
+The system creates a **continuous feedback loop** where the music adapts to your changing stress levels in real-time.
 
-##  Glossary
+## Glossary
 
 ### Technical Terminologies
 
