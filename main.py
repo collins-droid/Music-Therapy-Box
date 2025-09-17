@@ -334,7 +334,6 @@ class MusicTherapyBox:
             self.lcd.display("Calibrating HR sensor...")
             
             # Give HR sensor time to calibrate
-            import time
             time.sleep(3)
             
             logger.info("Calibration completed successfully")
