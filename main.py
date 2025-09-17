@@ -347,10 +347,17 @@ class MusicTherapyBox:
                 time.sleep(0.1)
             
             if self.baseline_data is None:
-                raise Exception("Arduino calibration timeout - no baseline data received")
-            
-            # Use Arduino baseline data
-            logger.info(f"Using Arduino baseline - GSR: {self.baseline_data['gsr_baseline']:.2f}, HR: {self.baseline_data['hr_baseline']:.2f}")
+                # Use default GSR values when Arduino baseline data is not received
+                logger.warning("Arduino baseline data not received - using default values")
+                self.baseline_data = {
+                    'gsr_baseline': 0.0,  # Default GSR baseline
+                    'hr_baseline': 70.0,  # Default HR baseline
+                    'timestamp': time.time()
+                }
+                logger.info("Using default baseline values - GSR: 0.0, HR: 70.0")
+            else:
+                # Use Arduino baseline data
+                logger.info(f"Using Arduino baseline - GSR: {self.baseline_data['gsr_baseline']:.2f}, HR: {self.baseline_data['hr_baseline']:.2f}")
             
             # Cleanup
             self.lcd.display("Calibration complete!\nStarting session...")
@@ -361,9 +368,17 @@ class MusicTherapyBox:
             
         except Exception as e:
             logger.error(f"Calibration failed: {e}")
-            self.lcd.display("Calibration failed!\nPlease wear gloves")
-            self.state = SystemState.IDLE
-            return False
+            # Use default values even if calibration fails
+            logger.warning("Using fallback default baseline values")
+            self.baseline_data = {
+                'gsr_baseline': 0.0,  # Default GSR baseline
+                'hr_baseline': 70.0,  # Default HR baseline
+                'timestamp': time.time()
+            }
+            self.lcd.display("Calibration complete!\nUsing default values")
+            logger.info("Calibration completed with default values")
+            time.sleep(2)
+            return True
 
     def run_therapy_session(self):
         """Main therapy session loop"""
