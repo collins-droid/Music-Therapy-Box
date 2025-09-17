@@ -79,15 +79,24 @@ class GSRSensor:
                         raw_data = self.serial_connection.readline()
                         line = raw_data.decode('utf-8', errors='ignore').strip()
                         
+                        # Additional cleaning for any remaining line ending issues
+                        line = line.replace('\r', '').replace('\n', '').strip()
+                        
+                        # Skip empty lines
+                        if not line:
+                            continue
+                        
                         # Process different types of messages from Arduino
-                        if line and line.startswith("GSR_CONDUCTANCE:"):
+                        if line.startswith("GSR_CONDUCTANCE:"):
                             self._process_data(line)
-                        elif line and line.startswith("BUTTON:"):
+                        elif line.startswith("BUTTON:"):
                             self._process_button_event(line)
-                        elif line and (line.startswith("BASELINE:") or line.startswith("BASELINE_PROGRESS:") or 
-                                     line.startswith("CALIBRATION:") or line.startswith("SESSION:") or 
-                                     line.startswith("STATUS:") or line.startswith("LCD:")):
+                        elif (line.startswith("BASELINE:") or line.startswith("BASELINE_PROGRESS:") or 
+                              line.startswith("CALIBRATION:") or line.startswith("SESSION:") or 
+                              line.startswith("STATUS:") or line.startswith("LCD:")):
                             self._process_arduino_message(line)
+                        else:
+                            logger.debug(f"Unrecognized Arduino message: {line}")
                     except UnicodeDecodeError:
                         # Skip invalid data and continue
                         continue
@@ -101,8 +110,32 @@ class GSRSensor:
     def _process_data(self, data_line: str):
         """Process GSR data from Arduino"""
         try:
-            # Simple parsing: "GSR_CONDUCTANCE:25.45"
-            conductance = float(data_line.split(':')[1])
+            # Clean the data line - remove any carriage returns, newlines, and extra whitespace
+            cleaned_line = data_line.strip().replace('\r', '').replace('\n', '')
+            
+            # Handle case where data might be concatenated (e.g., "GSR_CONDUCTANCE:7.34\r37431")
+            # Extract only the GSR_CONDUCTANCE part up to the first non-numeric character after the colon
+            if cleaned_line.startswith("GSR_CONDUCTANCE:"):
+                # Find the colon position
+                colon_pos = cleaned_line.find(':')
+                if colon_pos != -1:
+                    # Extract the value part and clean it
+                    value_part = cleaned_line[colon_pos + 1:]
+                    # Remove any non-numeric characters except decimal point and minus sign
+                    import re
+                    numeric_part = re.match(r'^[-+]?[0-9]*\.?[0-9]+', value_part)
+                    if numeric_part:
+                        conductance_str = numeric_part.group()
+                        conductance = float(conductance_str)
+                    else:
+                        logger.warning(f"Could not extract numeric value from: {value_part}")
+                        return
+                else:
+                    logger.warning(f"Invalid GSR data format - no colon found: {cleaned_line}")
+                    return
+            else:
+                logger.warning(f"Invalid GSR data format - doesn't start with GSR_CONDUCTANCE: {cleaned_line}")
+                return
             
             # Validate range
             valid = self.min_conductance <= conductance <= self.max_conductance
@@ -121,7 +154,7 @@ class GSRSensor:
             logger.debug(f"GSR: {conductance:.2f}μS, Valid={valid}")
             
         except (ValueError, IndexError) as e:
-            logger.warning(f"Failed to parse GSR data: {data_line} - {e}")
+            logger.warning(f"Failed to parse GSR data: '{data_line}' -> '{cleaned_line}' - {e}")
 
     def _process_button_event(self, data_line: str):
         """Process button events from Arduino"""

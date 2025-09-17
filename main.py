@@ -170,6 +170,7 @@ class MusicTherapyBox:
     def _handle_baseline_data(self, message: str):
         """Handle baseline data from Arduino"""
         try:
+            logger.debug(f"Processing baseline message: {message}")
             if message.startswith("BASELINE:"):
                 # Parse baseline data: "BASELINE:GSR:123.45,HR:75.2"
                 data_part = message.split(":", 1)[1]  # "GSR:123.45,HR:75.2"
@@ -194,6 +195,8 @@ class MusicTherapyBox:
                     
                     # Show baseline data on LCD
                     self.lcd.show_baseline_received(gsr_value, hr_value)
+                else:
+                    logger.warning(f"Failed to parse baseline data from: {message}")
             
             elif message.startswith("BASELINE_DATA:"):
                 # Ongoing baseline data updates
@@ -244,7 +247,21 @@ class MusicTherapyBox:
     def _handle_status_message(self, message: str):
         """Handle general status messages"""
         try:
-            logger.debug(f"Status message: {message}")
+            if message == "STATUS:IDLE":
+                logger.info("Arduino status: IDLE")
+            elif message == "STATUS:CALIBRATING":
+                logger.info("Arduino status: CALIBRATING")
+            elif message == "STATUS:SESSION_ACTIVE":
+                logger.info("Arduino status: SESSION_ACTIVE")
+            elif message.startswith("STATUS:CALIBRATING,REMAINING:"):
+                # Extract remaining time and convert to LCD command
+                remaining_ms = int(message.split(":")[2])
+                remaining_seconds = remaining_ms // 1000
+                # Forward as LCD command
+                lcd_command = f"LCD:CALIBRATION_PROGRESS:{remaining_seconds}"
+                self._handle_lcd_message(lcd_command)
+            else:
+                logger.debug(f"Status message: {message}")
         except Exception as e:
             logger.error(f"Error handling status message: {e}")
 
@@ -307,6 +324,11 @@ class MusicTherapyBox:
                 if self.baseline_data is not None:
                     logger.info("Baseline data received from Arduino")
                     break
+                
+                # Log progress every 2 seconds
+                elapsed = time.time() - start_time
+                if int(elapsed) % 2 == 0 and elapsed > 0:
+                    logger.debug(f"Calibration wait: {elapsed:.1f}s elapsed, baseline_data={self.baseline_data}")
                 
                 time.sleep(0.1)
             
