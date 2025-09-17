@@ -17,7 +17,7 @@ def button_callback(button_type):
 
 def message_callback(message):
     """Callback function to handle Arduino messages"""
-    logger.info(f"*** ARDUINO MESSAGE: {message} ***")
+    logger.info(f"*** ARDUINO MESSAGE: {repr(message)} ***")  # Use repr() to show special characters
 
 def main():
     """Test Arduino message reception"""
@@ -31,6 +31,7 @@ def main():
         return
     
     logger.info("GSR sensor started. Press START button on Arduino to test calibration...")
+    logger.info("This will show ALL raw data from Arduino including special characters")
     logger.info("Press Ctrl+C to exit")
     
     try:
@@ -38,7 +39,7 @@ def main():
             # Check for GSR readings
             reading = gsr_sensor.get_reading()
             if reading:
-                logger.debug(f"GSR: {reading.conductance:.2f}μS")
+                logger.info(f"GSR Reading: {reading.conductance:.2f}μS, Valid={reading.valid}")
             
             time.sleep(0.1)
             

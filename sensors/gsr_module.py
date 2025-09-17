@@ -78,6 +78,10 @@ class GSRSensor:
                         raw_data = self.serial_connection.readline()
                         line = raw_data.decode('utf-8', errors='ignore').strip()
                         
+                        # Debug: Show raw data
+                        if line:
+                            logger.debug(f"Raw Arduino data: {repr(raw_data)} -> decoded: {repr(line)}")
+                        
                         # Additional cleaning for any remaining line ending issues and null bytes
                         line = line.replace('\r', '').replace('\n', '').replace('\x00', '').strip()
                         
