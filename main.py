@@ -60,9 +60,8 @@ class MusicTherapyBox:
         self.data_collector = None
         self.feature_extractor = None
         
-        # Serial communication for buttons
-        self.arduino_serial = None
-        self.serial_thread = None
+        # Serial communication handled by GSR sensor only
+        # No separate Arduino serial connection needed
         
         # Configuration
         self.config = {
@@ -327,7 +326,7 @@ class MusicTherapyBox:
             
             # Wait for Arduino to complete calibration and send baseline data
             # The Arduino will handle the actual calibration process
-            calibration_timeout = 15  # seconds
+            calibration_timeout = 12  # seconds (Arduino takes 10s + 2s buffer)
             start_time = time.time()
             
             logger.info("Waiting for Arduino calibration to complete...")

@@ -215,9 +215,15 @@ class GSRSensor:
         try:
             logger.debug(f"Arduino message: {data_line}")
             
+            # Special handling for baseline messages
+            if data_line.startswith("BASELINE:"):
+                logger.info(f"BASELINE message received: {data_line}")
+            
             # Forward message to callback if available
             if self.message_callback:
                 self.message_callback(data_line)
+            else:
+                logger.warning("No message callback set - baseline data may be lost!")
             
         except Exception as e:
             logger.warning(f"Failed to process Arduino message: {data_line} - {e}")
