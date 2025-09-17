@@ -58,7 +58,12 @@ class StressPredictor:
         """Load the pre-trained Random Forest model"""
         try:
             if os.path.exists(self.model_path):
-                self.model = joblib.load(self.model_path)
+                # Suppress scikit-learn version warnings
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+                    self.model = joblib.load(self.model_path)
+                
                 self.loaded = True
                 self.ready = True
                 logger.info(f"Loaded Random Forest model from {self.model_path}")

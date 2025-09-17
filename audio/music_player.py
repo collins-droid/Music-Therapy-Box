@@ -108,7 +108,7 @@ class MusicPlayer:
             for category_name, folder_path in self.music_folders.items():
                 try:
                     category = MusicCategory(category_name)
-                    songs = self._scan_folder(folder_path)
+                    songs = self._scan_folder(folder_path, category)
                     self.songs[category] = songs
                     logger.info(f"Loaded {len(songs)} songs for category '{category_name}'")
                 except ValueError:
@@ -123,7 +123,7 @@ class MusicPlayer:
         except Exception as e:
             logger.error(f"Failed to load music library: {e}")
 
-    def _scan_folder(self, folder_path: str) -> List[Song]:
+    def _scan_folder(self, folder_path: str, category: MusicCategory) -> List[Song]:
         """Scan folder for music files"""
         songs = []
         
@@ -143,7 +143,7 @@ class MusicPlayer:
                             path=str(file_path),
                             title=file_path.stem,
                             duration=duration,
-                            category=MusicCategory(folder_path.split('/')[-1])  # Infer category from folder
+                            category=category
                         )
                         songs.append(song)
                         
