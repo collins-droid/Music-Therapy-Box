@@ -149,22 +149,36 @@ class LCDDisplay:
     def handle_arduino_lcd_command(self, command: str):
         """Handle LCD commands from Arduino serial"""
         try:
-            if command == "LCD:CALIBRATION_IN_PROGRESS":
+            # Clean the command string - remove null bytes and other control characters
+            cleaned_command = command.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
+            
+            logger.debug(f"LCD command received: '{command}' -> cleaned: '{cleaned_command}'")
+            
+            if cleaned_command == "LCD:CALIBRATION_IN_PROGRESS":
                 self.display("Calibrating...\nPlease wait")
-            elif command == "LCD:CALIBRATION_COMPLETE":
+            elif cleaned_command == "LCD:CALIBRATION_COMPLETE":
                 self.display("Calibration\nComplete!")
-            elif command == "LCD:SESSION_ACTIVE":
+            elif cleaned_command == "LCD:SESSION_ACTIVE":
                 self.display("Session Active\nMonitoring...")
-            elif command == "LCD:READY":
+            elif cleaned_command == "LCD:READY":
                 self.display("System Ready\nPress START")
-            elif command.startswith("LCD:CALIBRATION_PROGRESS:"):
-                remaining = int(command.split(":")[2])
-                self.show_calibration_progress(remaining)
+            elif cleaned_command.startswith("LCD:CALIBRATION_PROGRESS:"):
+                # Extract the remaining seconds value safely
+                parts = cleaned_command.split(":")
+                if len(parts) >= 3:
+                    try:
+                        remaining_str = parts[2].strip()
+                        remaining = int(remaining_str)
+                        self.show_calibration_progress(remaining)
+                    except ValueError as e:
+                        logger.warning(f"Could not parse remaining seconds from: '{remaining_str}' - {e}")
+                else:
+                    logger.warning(f"Invalid LCD progress command format: '{cleaned_command}'")
             else:
-                logger.debug(f"Unknown LCD command: {command}")
+                logger.debug(f"Unknown LCD command: '{cleaned_command}'")
                 
         except Exception as e:
-            logger.error(f"Error handling LCD command: {e}")
+            logger.error(f"Error handling LCD command: '{command}' -> '{cleaned_command}' - {e}")
 
     def show_calibration_progress(self, remaining_seconds: int):
         """Show calibration progress with countdown"""

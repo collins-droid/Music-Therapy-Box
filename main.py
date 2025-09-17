@@ -170,16 +170,21 @@ class MusicTherapyBox:
     def _handle_baseline_data(self, message: str):
         """Handle baseline data from Arduino"""
         try:
-            logger.debug(f"Processing baseline message: {message}")
-            if message.startswith("BASELINE:"):
+            # Clean the message string - remove null bytes and other control characters
+            cleaned_message = message.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
+            
+            logger.debug(f"Processing baseline message: '{message}' -> cleaned: '{cleaned_message}'")
+            
+            if cleaned_message.startswith("BASELINE:"):
                 # Parse baseline data: "BASELINE:GSR:123.45,HR:75.2"
-                data_part = message.split(":", 1)[1]  # "GSR:123.45,HR:75.2"
+                data_part = cleaned_message.split(":", 1)[1]  # "GSR:123.45,HR:75.2"
                 parts = data_part.split(",")
                 
                 gsr_value = None
                 hr_value = None
                 
                 for part in parts:
+                    part = part.strip()  # Clean each part
                     if part.startswith("GSR:"):
                         gsr_value = float(part.split(":")[1])
                     elif part.startswith("HR:"):
@@ -196,14 +201,14 @@ class MusicTherapyBox:
                     # Show baseline data on LCD
                     self.lcd.show_baseline_received(gsr_value, hr_value)
                 else:
-                    logger.warning(f"Failed to parse baseline data from: {message}")
+                    logger.warning(f"Failed to parse baseline data from: '{cleaned_message}'")
             
-            elif message.startswith("BASELINE_DATA:"):
+            elif cleaned_message.startswith("BASELINE_DATA:"):
                 # Ongoing baseline data updates
-                logger.debug(f"Baseline data update: {message}")
+                logger.debug(f"Baseline data update: {cleaned_message}")
                 
         except Exception as e:
-            logger.error(f"Error handling baseline data: {e}")
+            logger.error(f"Error handling baseline data: '{message}' -> '{cleaned_message}' - {e}")
 
     def _handle_baseline_progress(self, message: str):
         """Handle baseline collection progress"""
@@ -285,25 +290,28 @@ class MusicTherapyBox:
     def _handle_arduino_message(self, message: str):
         """Handle Arduino status and control messages"""
         try:
-            logger.debug(f"Arduino message: {message}")
+            # Clean the message string - remove null bytes and other control characters
+            cleaned_message = message.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
             
-            if message.startswith("BASELINE:"):
-                self._handle_baseline_data(message)
-            elif message.startswith("BASELINE_PROGRESS:"):
-                self._handle_baseline_progress(message)
-            elif message.startswith("CALIBRATION:"):
-                self._handle_calibration_status(message)
-            elif message.startswith("SESSION:"):
-                self._handle_session_status(message)
-            elif message.startswith("STATUS:"):
-                self._handle_status_message(message)
-            elif message.startswith("LCD:"):
-                self._handle_lcd_message(message)
+            logger.debug(f"Arduino message: '{message}' -> cleaned: '{cleaned_message}'")
+            
+            if cleaned_message.startswith("BASELINE:"):
+                self._handle_baseline_data(cleaned_message)
+            elif cleaned_message.startswith("BASELINE_PROGRESS:"):
+                self._handle_baseline_progress(cleaned_message)
+            elif cleaned_message.startswith("CALIBRATION:"):
+                self._handle_calibration_status(cleaned_message)
+            elif cleaned_message.startswith("SESSION:"):
+                self._handle_session_status(cleaned_message)
+            elif cleaned_message.startswith("STATUS:"):
+                self._handle_status_message(cleaned_message)
+            elif cleaned_message.startswith("LCD:"):
+                self._handle_lcd_message(cleaned_message)
             else:
-                logger.debug(f"Unhandled Arduino message: {message}")
+                logger.debug(f"Unhandled Arduino message: '{cleaned_message}'")
                 
         except Exception as e:
-            logger.error(f"Error handling Arduino message: {e}")
+            logger.error(f"Error handling Arduino message: '{message}' -> '{cleaned_message}' - {e}")
 
     def run_calibration(self) -> bool:
         """Run sensor calibration sequence"""

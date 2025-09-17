@@ -79,8 +79,8 @@ class GSRSensor:
                         raw_data = self.serial_connection.readline()
                         line = raw_data.decode('utf-8', errors='ignore').strip()
                         
-                        # Additional cleaning for any remaining line ending issues
-                        line = line.replace('\r', '').replace('\n', '').strip()
+                        # Additional cleaning for any remaining line ending issues and null bytes
+                        line = line.replace('\r', '').replace('\n', '').replace('\x00', '').strip()
                         
                         # Skip empty lines
                         if not line:
