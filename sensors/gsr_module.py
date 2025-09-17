@@ -25,7 +25,7 @@ class GSRReading:
 class GSRSensor:
     """Optimized GSR sensor class for Arduino communication"""
     
-    def __init__(self, port: str = None, baudrate: int = 9600, button_callback=None):
+    def __init__(self, port: str = None, baudrate: int = 9600, button_callback=None, message_callback=None):
         # Auto-detect port
         if port is None:
             import platform
@@ -49,8 +49,9 @@ class GSRSensor:
         self.min_conductance = 0.1
         self.max_conductance = 100.0
         
-        # Button event callback
+        # Callbacks
         self.button_callback = button_callback
+        self.message_callback = message_callback
         
         # Initialize connection
         self._connect()
@@ -83,6 +84,10 @@ class GSRSensor:
                             self._process_data(line)
                         elif line and line.startswith("BUTTON:"):
                             self._process_button_event(line)
+                        elif line and (line.startswith("BASELINE:") or line.startswith("BASELINE_PROGRESS:") or 
+                                     line.startswith("CALIBRATION:") or line.startswith("SESSION:") or 
+                                     line.startswith("STATUS:") or line.startswith("LCD:")):
+                            self._process_arduino_message(line)
                     except UnicodeDecodeError:
                         # Skip invalid data and continue
                         continue
@@ -132,6 +137,18 @@ class GSRSensor:
             
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse button event: {data_line} - {e}")
+
+    def _process_arduino_message(self, data_line: str):
+        """Process Arduino status and control messages"""
+        try:
+            logger.debug(f"Arduino message: {data_line}")
+            
+            # Forward message to callback if available
+            if self.message_callback:
+                self.message_callback(data_line)
+            
+        except Exception as e:
+            logger.warning(f"Failed to process Arduino message: {data_line} - {e}")
 
     def start_sensor(self) -> bool:
         """Start the GSR sensor"""

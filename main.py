@@ -91,7 +91,8 @@ class MusicTherapyBox:
             logger.info("Initializing hardware modules...")
             
             # Initialize sensor modules
-            self.gsr_sensor = GSRSensor(button_callback=self._handle_arduino_button_event)
+            self.gsr_sensor = GSRSensor(button_callback=self._handle_arduino_button_event, 
+                                       message_callback=self._handle_arduino_message)
             self.hr_sensor = HRSensor()
             
             # Initialize display module (LCD only - LEDs controlled by Arduino)
@@ -263,6 +264,29 @@ class MusicTherapyBox:
                 
         except Exception as e:
             logger.error(f"Error handling Arduino button event: {e}")
+
+    def _handle_arduino_message(self, message: str):
+        """Handle Arduino status and control messages"""
+        try:
+            logger.debug(f"Arduino message: {message}")
+            
+            if message.startswith("BASELINE:"):
+                self._handle_baseline_data(message)
+            elif message.startswith("BASELINE_PROGRESS:"):
+                self._handle_baseline_progress(message)
+            elif message.startswith("CALIBRATION:"):
+                self._handle_calibration_status(message)
+            elif message.startswith("SESSION:"):
+                self._handle_session_status(message)
+            elif message.startswith("STATUS:"):
+                self._handle_status_message(message)
+            elif message.startswith("LCD:"):
+                self._handle_lcd_message(message)
+            else:
+                logger.debug(f"Unhandled Arduino message: {message}")
+                
+        except Exception as e:
+            logger.error(f"Error handling Arduino message: {e}")
 
     def run_calibration(self) -> bool:
         """Run sensor calibration sequence"""
