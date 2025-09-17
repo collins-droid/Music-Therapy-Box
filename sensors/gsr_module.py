@@ -3,7 +3,7 @@
 GSR Sensor Module for Music Therapy Box (Optimized)
 Receives pre-computed GSR conductance data from Arduino via serial communication
 """
-
+import re
 import serial
 import time
 import logging
@@ -20,6 +20,13 @@ class GSRReading:
     conductance: float
     timestamp: float
     valid: bool
+
+@dataclass
+class BaselineData:
+    gsr_baseline: float
+    hr_baseline: float
+    timestamp: float
+    source: str  # 'arduino' or 'default'
 
 class GSRSensor:
     """Optimized GSR sensor class for Arduino communication"""
@@ -49,6 +56,9 @@ class GSRSensor:
         # Use deque for efficient data storage
         self.latest_reading = None
         self.readings_history = deque(maxlen=1000)
+        
+        # Baseline data storage
+        self.baseline_data = None
         
         # Threading
         self._thread = None
@@ -190,7 +200,7 @@ class GSRSensor:
             self.latest_reading = reading
             self.readings_history.append(reading)
             
-            logger.debug(f"GSR: {conductance:.2f}μS, Valid={valid}")
+            logger.info(f"GSR: {conductance:.2f}μS, Valid={valid}")
             
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse GSR data: '{data_line}' -> '{cleaned_line}' - {e}")
@@ -213,11 +223,12 @@ class GSRSensor:
     def _process_arduino_message(self, data_line: str):
         """Process Arduino status and control messages"""
         try:
-            logger.debug(f"Arduino message: {data_line}")
+            logger.info(f"Arduino message: {data_line}")
             
             # Special handling for baseline messages
             if data_line.startswith("BASELINE:"):
                 logger.info(f"BASELINE message received: {data_line}")
+                self._parse_and_store_baseline_data(data_line)
             
             # Forward message to callback if available
             if self.message_callback:
@@ -227,6 +238,37 @@ class GSRSensor:
             
         except Exception as e:
             logger.warning(f"Failed to process Arduino message: {data_line} - {e}")
+    
+    def _parse_and_store_baseline_data(self, message: str):
+        """Parse and store baseline data from Arduino message"""
+        try:
+            # Parse baseline data: "BASELINE:GSR:123.45,HR:75.2"
+            data_part = message.split(":", 1)[1]  # "GSR:123.45,HR:75.2"
+            parts = data_part.split(",")
+            
+            gsr_value = None
+            hr_value = None
+            
+            for part in parts:
+                part = part.strip()  # Clean each part
+                if part.startswith("GSR:"):
+                    gsr_value = float(part.split(":")[1])
+                elif part.startswith("HR:"):
+                    hr_value = float(part.split(":")[1])
+            
+            if gsr_value is not None and hr_value is not None:
+                self.baseline_data = BaselineData(
+                    gsr_baseline=gsr_value,
+                    hr_baseline=hr_value,
+                    timestamp=time.time(),
+                    source='arduino'
+                )
+                logger.info(f"Baseline data stored - GSR: {gsr_value:.2f}, HR: {hr_value:.2f}")
+            else:
+                logger.warning(f"Failed to parse baseline data from: {message}")
+                
+        except Exception as e:
+            logger.error(f"Error parsing baseline data: {e}")
 
     def start_sensor(self) -> bool:
         """Start the GSR sensor"""
@@ -304,6 +346,24 @@ class GSRSensor:
         valid_readings = [r.conductance for r in readings if r.valid]
         
         return np.mean(valid_readings) if len(valid_readings) >= 10 else None
+    
+    def has_baseline_data(self) -> bool:
+        """Check if baseline data is available"""
+        return self.baseline_data is not None
+    
+    def get_baseline_data(self) -> Optional[BaselineData]:
+        """Get stored baseline data"""
+        return self.baseline_data
+    
+    def set_default_baseline(self, gsr_baseline: float = 0.0, hr_baseline: float = 70.0):
+        """Set default baseline data when Arduino data is not available"""
+        self.baseline_data = BaselineData(
+            gsr_baseline=gsr_baseline,
+            hr_baseline=hr_baseline,
+            timestamp=time.time(),
+            source='default'
+        )
+        logger.info(f"Default baseline data set - GSR: {gsr_baseline:.2f}, HR: {hr_baseline:.2f}")
 
     def detect_stress_change(self, baseline: float, threshold: float = 0.3) -> bool:
         """Detect significant change from baseline"""

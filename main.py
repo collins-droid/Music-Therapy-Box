@@ -5,9 +5,7 @@ Modular design with USB serial communication for button inputs
 """
 
 import time
-import threading
 import queue
-import serial
 import logging
 from enum import Enum
 from dataclasses import dataclass
@@ -45,7 +43,6 @@ class MusicTherapyBox:
         # System state
         self.state = SystemState.IDLE
         self.session_active = False
-        self.baseline_data = None
         
         # Threading and communication
         self.button_queue = queue.Queue()
@@ -90,8 +87,10 @@ class MusicTherapyBox:
             logger.info("Initializing hardware modules...")
             
             # Initialize sensor modules
+            logger.info("Initializing GSR sensor...")
             self.gsr_sensor = GSRSensor(button_callback=self._handle_arduino_button_event, 
                                        message_callback=self._handle_arduino_message)
+            logger.info(f"GSR sensor initialized - Connected: {self.gsr_sensor.connected}, Port: {self.gsr_sensor.port}")
             self.hr_sensor = HRSensor()
             
             # Initialize display module (LCD only - LEDs controlled by Arduino)
@@ -167,47 +166,10 @@ class MusicTherapyBox:
             logger.error(f"Error handling LCD message: {e}")
 
     def _handle_baseline_data(self, message: str):
-        """Handle baseline data from Arduino"""
-        try:
-            # Clean the message string - remove null bytes and other control characters
-            cleaned_message = message.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
-            
-            logger.debug(f"Processing baseline message: '{message}' -> cleaned: '{cleaned_message}'")
-            
-            if cleaned_message.startswith("BASELINE:"):
-                # Parse baseline data: "BASELINE:GSR:123.45,HR:75.2"
-                data_part = cleaned_message.split(":", 1)[1]  # "GSR:123.45,HR:75.2"
-                parts = data_part.split(",")
-                
-                gsr_value = None
-                hr_value = None
-                
-                for part in parts:
-                    part = part.strip()  # Clean each part
-                    if part.startswith("GSR:"):
-                        gsr_value = float(part.split(":")[1])
-                    elif part.startswith("HR:"):
-                        hr_value = float(part.split(":")[1])
-                
-                if gsr_value is not None and hr_value is not None:
-                    self.baseline_data = {
-                        'gsr_baseline': gsr_value,
-                        'hr_baseline': hr_value,
-                        'timestamp': time.time()
-                    }
-                    logger.info(f"Baseline data received - GSR: {gsr_value:.2f}, HR: {hr_value:.2f}")
-                    
-                    # Show baseline data on LCD
-                    self.lcd.show_baseline_received(gsr_value, hr_value)
-                else:
-                    logger.warning(f"Failed to parse baseline data from: '{cleaned_message}'")
-            
-            elif cleaned_message.startswith("BASELINE_DATA:"):
-                # Ongoing baseline data updates
-                logger.debug(f"Baseline data update: {cleaned_message}")
-                
-        except Exception as e:
-            logger.error(f"Error handling baseline data: '{message}' -> '{cleaned_message}' - {e}")
+        """Handle baseline data from Arduino - now handled by GSR sensor"""
+        # Baseline data is now handled directly by GSR sensor
+        # This method is kept for compatibility but does nothing
+        pass
 
     def _handle_baseline_progress(self, message: str):
         """Handle baseline collection progress"""
@@ -326,37 +288,40 @@ class MusicTherapyBox:
             
             # Wait for Arduino to complete calibration and send baseline data
             # The Arduino will handle the actual calibration process
-            calibration_timeout = 12  # seconds (Arduino takes 10s + 2s buffer)
+            calibration_timeout = 18  # seconds (Arduino takes 10s + 8s buffer for serial delays)
             start_time = time.time()
             
             logger.info("Waiting for Arduino calibration to complete...")
             self.lcd.show_waiting_for_arduino()
             
             while time.time() - start_time < calibration_timeout:
-                # Check if we received baseline data from Arduino
-                if self.baseline_data is not None:
+                # Check if GSR sensor has baseline data
+                if self.gsr_sensor.has_baseline_data():
                     logger.info("Baseline data received from Arduino")
                     break
                 
                 # Log progress every 2 seconds
                 elapsed = time.time() - start_time
                 if int(elapsed) % 2 == 0 and elapsed > 0:
-                    logger.debug(f"Calibration wait: {elapsed:.1f}s elapsed, baseline_data={self.baseline_data}")
+                    logger.debug(f"Calibration wait: {elapsed:.1f}s elapsed, has_baseline={self.gsr_sensor.has_baseline_data()}")
+                    # Check GSR sensor status
+                    if self.gsr_sensor:
+                        logger.debug(f"GSR sensor status - Connected: {self.gsr_sensor.connected}, Running: {self.gsr_sensor.running}")
+                        latest_reading = self.gsr_sensor.get_reading()
+                        if latest_reading:
+                            logger.debug(f"Latest GSR reading: {latest_reading.conductance:.2f}μS")
                 
                 time.sleep(0.1)
             
-            if self.baseline_data is None:
+            if not self.gsr_sensor.has_baseline_data():
                 # Use default GSR values when Arduino baseline data is not received
                 logger.warning("Arduino baseline data not received - using default values")
-                self.baseline_data = {
-                    'gsr_baseline': 0.0,  # Default GSR baseline
-                    'hr_baseline': 70.0,  # Default HR baseline
-                    'timestamp': time.time()
-                }
+                self.gsr_sensor.set_default_baseline(gsr_baseline=0.0, hr_baseline=70.0)
                 logger.info("Using default baseline values - GSR: 0.0, HR: 70.0")
             else:
                 # Use Arduino baseline data
-                logger.info(f"Using Arduino baseline - GSR: {self.baseline_data['gsr_baseline']:.2f}, HR: {self.baseline_data['hr_baseline']:.2f}")
+                baseline_data = self.gsr_sensor.get_baseline_data()
+                logger.info(f"Using Arduino baseline - GSR: {baseline_data.gsr_baseline:.2f}, HR: {baseline_data.hr_baseline:.2f}")
             
             # Cleanup
             self.lcd.display("Calibration complete!\nStarting session...")
@@ -369,11 +334,7 @@ class MusicTherapyBox:
             logger.error(f"Calibration failed: {e}")
             # Use default values even if calibration fails
             logger.warning("Using fallback default baseline values")
-            self.baseline_data = {
-                'gsr_baseline': 0.0,  # Default GSR baseline
-                'hr_baseline': 70.0,  # Default HR baseline
-                'timestamp': time.time()
-            }
+            self.gsr_sensor.set_default_baseline(gsr_baseline=0.0, hr_baseline=70.0)
             self.lcd.display("Calibration complete!\nUsing default values")
             logger.info("Calibration completed with default values")
             time.sleep(2)
@@ -395,7 +356,7 @@ class MusicTherapyBox:
                     gsr_sensor=self.gsr_sensor,
                     hr_sensor=self.hr_sensor,
                     window_size=self.config['sensor_window'],
-                    baseline=self.baseline_data
+                    baseline=self.gsr_sensor.get_baseline_data()
                 )
                 
                 if not sensor_window:
@@ -471,7 +432,7 @@ class MusicTherapyBox:
                 gsr_sensor=self.gsr_sensor,
                 hr_sensor=self.hr_sensor,
                 duration=10,  # Shorter sample
-                baseline=self.baseline_data
+                baseline=self.gsr_sensor.get_baseline_data()
             )
             
             if sensor_data:
@@ -567,8 +528,8 @@ class MusicTherapyBox:
         if self.lcd:
             self.lcd.display("System shutting down...")
             
-        if self.arduino_serial:
-            self.arduino_serial.close()
+        # Arduino serial communication is handled by GSR sensor
+        # No need to close separate Arduino connection
             
         logger.info("Shutdown complete")
 
