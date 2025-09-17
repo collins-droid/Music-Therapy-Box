@@ -240,6 +240,19 @@ class LCDDisplay:
         sensor_text = f"GSR{gsr_icon} HR{hr_icon}"
         self.lcd_display_string(sensor_text[:self.width], 2)
 
+    def show_waiting_for_arduino(self):
+        """Show waiting for Arduino calibration message"""
+        self.display("Waiting for Arduino\nto complete calibration...")
+
+    def show_baseline_received(self, gsr_value: float, hr_value: float):
+        """Show baseline data received from Arduino"""
+        self.display(f"Baseline received!\nGSR: {gsr_value:.1f}, HR: {hr_value:.1f}")
+
+    def show_baseline_collection(self, current: int, total: int):
+        """Show baseline collection progress"""
+        progress = int((current / total) * 100)
+        self.display(f"Collecting baseline...\n{current}/{total} ({progress}%)")
+
     def clear(self):
         """Clear the display"""
         self.lcd_clear()
