@@ -72,8 +72,8 @@ class MusicTherapyBox:
             'serial_port': self._get_serial_port(),
             'serial_baudrate': 9600,
             'music_folders': {
-                'stress': 'music/stress_relief/',
-                'no_stress': 'music/calming/'
+                'stress_relief': 'music/stress_relief/',
+                'calming': 'music/calming/'
             }
         }
 
@@ -138,78 +138,18 @@ class MusicTherapyBox:
 
     def initialize_serial(self) -> bool:
         """Initialize USB serial communication with Arduino"""
-        try:
-            self.arduino_serial = serial.Serial(
-                self.config['serial_port'], 
-                self.config['serial_baudrate'],
-                timeout=1
-            )
-            
-            # Start serial reading thread
-            self.serial_thread = threading.Thread(target=self._serial_reader, daemon=True)
-            self.serial_thread.start()
-            
-            logger.info(f"Serial communication initialized on {self.config['serial_port']}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Serial initialization failed: {e}")
-            return False
+        # Arduino communication is now handled by GSR sensor
+        # No need for separate serial connection in main.py
+        logger.info("Arduino communication handled by GSR sensor")
+        return True
 
     def _serial_reader(self):
         """Background thread to read messages from Arduino"""
+        # Arduino communication is now handled by GSR sensor
+        # This method is disabled to prevent serial port conflicts
+        logger.info("Serial reader disabled - Arduino communication handled by GSR sensor")
         while self.running:
-            try:
-                if self.arduino_serial and self.arduino_serial.in_waiting > 0:
-                    line = self.arduino_serial.readline().decode('utf-8').strip()
-                    
-                    if line:
-                        # Handle different message types from Arduino
-                        if line.startswith("BUTTON:"):
-                            # Button events
-                            button_name = line.split(":")[1]
-                            
-                            if button_name in [b.value for b in ButtonType]:
-                                button_event = ButtonEvent(
-                                    button=ButtonType(button_name),
-                                    timestamp=time.time()
-                                )
-                                self.button_queue.put(button_event)
-                                logger.debug(f"Button event received: {button_name}")
-                        
-                        elif line.startswith("LCD:"):
-                            # LCD display messages
-                            self._handle_lcd_message(line)
-                        
-                        elif line.startswith("BASELINE:"):
-                            # Baseline data from Arduino
-                            self._handle_baseline_data(line)
-                        
-                        elif line.startswith("BASELINE_DATA:"):
-                            # Ongoing baseline data
-                            self._handle_baseline_data(line)
-                        
-                        elif line.startswith("BASELINE_PROGRESS:"):
-                            # Baseline collection progress
-                            self._handle_baseline_progress(line)
-                        
-                        elif line.startswith("CALIBRATION:"):
-                            # Calibration status messages
-                            self._handle_calibration_status(line)
-                        
-                        elif line.startswith("SESSION:"):
-                            # Session status messages
-                            self._handle_session_status(line)
-                        
-                        elif line.startswith("STATUS:"):
-                            # General status messages
-                            self._handle_status_message(line)
-                
-                time.sleep(0.01)  # Small delay to prevent CPU spinning
-                
-            except Exception as e:
-                logger.warning(f"Serial read error: {e}")
-                time.sleep(0.1)
+            time.sleep(1)  # Just sleep to keep thread alive
 
     def _handle_lcd_message(self, message: str):
         """Handle LCD display messages from Arduino"""
@@ -450,10 +390,10 @@ class MusicTherapyBox:
     def _map_prediction_to_music(self, prediction: str) -> str:
         """Map ML prediction to music category"""
         mapping = {
-            'stress': 'stress',
-            'no_stress': 'no_stress'
+            'stress': 'stress_relief',
+            'no_stress': 'calming'
         }
-        return mapping.get(prediction.lower(), 'no_stress')  # Default to calming music
+        return mapping.get(prediction.lower(), 'calming')  # Default to calming music
 
     def _update_display_for_prediction(self, prediction: str, confidence: float):
         """Update LCD display based on prediction"""

@@ -36,7 +36,7 @@ class LCDDisplay:
     def _initialize(self) -> bool:
         """Initialize the LCD display hardware"""
         try:
-            # Try hardware initialization
+            # Hardware initialization only
             import board
             from adafruit_character_lcd.character_lcd_i2c import Character_LCD_I2C
             
@@ -53,37 +53,30 @@ class LCDDisplay:
             return True
             
         except ImportError:
-            logger.warning("LCD library not available. Using simulation mode.")
-            self._enable_simulation()
-            return True
+            logger.error("LCD library not available. Install with: pip install adafruit-circuitpython-character-lcd")
+            self.connected = False
+            self.ready = False
+            return False
         except Exception as e:
             logger.error(f"Failed to initialize LCD: {e}")
-            self._enable_simulation()
+            self.connected = False
+            self.ready = False
             return False
 
-    def _enable_simulation(self):
-        """Enable simulation mode when hardware unavailable"""
-        self.connected = False
-        self.ready = True
-        logger.info("LCD running in simulation mode")
 
     def display(self, text: str, clear: bool = True):
         """Display text on LCD screen"""
         try:
-            if not self.ready:
+            if not self.ready or not self.connected:
+                logger.warning("LCD not connected - cannot display text")
                 return
             
             # Update current message
             self.current_message = DisplayMessage(text=text, timestamp=time.time())
             
-            if self.connected:
-                if clear:
-                    self.lcd.clear()
-                self.lcd.message = text
-            else:
-                # Simulation mode
-                timestamp = time.strftime("%H:%M:%S")
-                print(f"[{timestamp}] LCD: {text}")
+            if clear:
+                self.lcd.clear()
+            self.lcd.message = text
                 
         except Exception as e:
             logger.error(f"Display error: {e}")
@@ -161,11 +154,11 @@ class LCDDisplay:
     def clear(self):
         """Clear the display"""
         try:
-            if self.connected:
-                self.lcd.clear()
-            else:
-                print("[LCD] Display cleared")
-            
+            if not self.ready or not self.connected:
+                logger.warning("LCD not connected - cannot clear display")
+                return
+                
+            self.lcd.clear()
             self.current_message = None
             
         except Exception as e:
