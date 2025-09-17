@@ -91,7 +91,7 @@ class MusicTherapyBox:
             logger.info("Initializing hardware modules...")
             
             # Initialize sensor modules
-            self.gsr_sensor = GSRSensor()
+            self.gsr_sensor = GSRSensor(button_callback=self._handle_arduino_button_event)
             self.hr_sensor = HRSensor()
             
             # Initialize display module (LCD only - LEDs controlled by Arduino)
@@ -246,6 +246,23 @@ class MusicTherapyBox:
             logger.debug(f"Status message: {message}")
         except Exception as e:
             logger.error(f"Error handling status message: {e}")
+
+    def _handle_arduino_button_event(self, button_type: str):
+        """Handle button events from Arduino"""
+        try:
+            logger.info(f"Arduino button event: {button_type}")
+            
+            if button_type == "START":
+                button_event = ButtonEvent(ButtonType.START, time.time())
+                self.button_queue.put(button_event)
+            elif button_type == "STOP":
+                button_event = ButtonEvent(ButtonType.STOP, time.time())
+                self.button_queue.put(button_event)
+            else:
+                logger.warning(f"Unknown button type: {button_type}")
+                
+        except Exception as e:
+            logger.error(f"Error handling Arduino button event: {e}")
 
     def run_calibration(self) -> bool:
         """Run sensor calibration sequence"""

@@ -25,7 +25,7 @@ class GSRReading:
 class GSRSensor:
     """Optimized GSR sensor class for Arduino communication"""
     
-    def __init__(self, port: str = None, baudrate: int = 9600):
+    def __init__(self, port: str = None, baudrate: int = 9600, button_callback=None):
         # Auto-detect port
         if port is None:
             import platform
@@ -48,6 +48,9 @@ class GSRSensor:
         # Validation limits
         self.min_conductance = 0.1
         self.max_conductance = 100.0
+        
+        # Button event callback
+        self.button_callback = button_callback
         
         # Initialize connection
         self._connect()
@@ -75,9 +78,11 @@ class GSRSensor:
                         raw_data = self.serial_connection.readline()
                         line = raw_data.decode('utf-8', errors='ignore').strip()
                         
-                        # Only process non-empty lines that start with expected prefix
+                        # Process different types of messages from Arduino
                         if line and line.startswith("GSR_CONDUCTANCE:"):
                             self._process_data(line)
+                        elif line and line.startswith("BUTTON:"):
+                            self._process_button_event(line)
                     except UnicodeDecodeError:
                         # Skip invalid data and continue
                         continue
@@ -112,6 +117,21 @@ class GSRSensor:
             
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse GSR data: {data_line} - {e}")
+
+    def _process_button_event(self, data_line: str):
+        """Process button events from Arduino"""
+        try:
+            # Parse button event: "BUTTON:START" or "BUTTON:STOP"
+            button_type = data_line.split(':')[1]
+            
+            logger.info(f"Button event received: {button_type}")
+            
+            # Forward button event to callback if available
+            if self.button_callback:
+                self.button_callback(button_type)
+            
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Failed to parse button event: {data_line} - {e}")
 
     def start_sensor(self) -> bool:
         """Start the GSR sensor"""
