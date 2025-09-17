@@ -169,10 +169,13 @@ class GSRSensor:
         if not self.connected or not self.running:
             return False
         
+        # If we have recent readings, check if they're fresh
         if self.latest_reading:
             return (time.time() - self.latest_reading.timestamp) < 10.0
         
-        return False
+        # If no readings yet but sensor is running, consider it connected
+        # (during initialization, sensor might not have data yet)
+        return True
 
     def calculate_baseline(self, duration_seconds: int = 10) -> Optional[float]:
         """Calculate baseline conductance from recent readings"""

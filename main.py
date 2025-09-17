@@ -119,13 +119,20 @@ class MusicTherapyBox:
             time.sleep(5)
             
             # Test all modules
-            if not all([
-                self.gsr_sensor.is_connected(),
-                self.hr_sensor.is_connected(),
-                self.lcd.is_ready(),
-                self.music_player.is_ready(),
-                self.stress_predictor.is_loaded()
-            ]):
+            logger.info("Testing hardware module readiness...")
+            gsr_ready = self.gsr_sensor.is_connected()
+            hr_ready = self.hr_sensor.is_connected()
+            lcd_ready = self.lcd.is_ready()
+            music_ready = self.music_player.is_ready()
+            model_ready = self.stress_predictor.is_loaded()
+            
+            logger.info(f"GSR sensor ready: {gsr_ready}")
+            logger.info(f"HR sensor ready: {hr_ready}")
+            logger.info(f"LCD ready: {lcd_ready}")
+            logger.info(f"Music player ready: {music_ready}")
+            logger.info(f"Stress predictor ready: {model_ready}")
+            
+            if not all([gsr_ready, hr_ready, lcd_ready, music_ready, model_ready]):
                 raise Exception("One or more hardware modules failed initialization")
             
             logger.info("Hardware initialization successful")
