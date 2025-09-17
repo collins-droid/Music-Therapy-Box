@@ -331,10 +331,35 @@ class MusicTherapyBox:
             
             # Add MAX30102 calibration after GSR calibration
             logger.info("Starting MAX30102 calibration...")
-            self.lcd.display("Calibrating HR sensor...")
+            self.lcd.display("Calibrating HR sensor...\nPlace finger on sensor")
             
-            # Give HR sensor time to calibrate
-            time.sleep(3)
+            # Give HR sensor time to calibrate and collect baseline data
+            calibration_start = time.time()
+            calibration_duration = 10  # seconds for HR calibration
+            
+            while time.time() - calibration_start < calibration_duration:
+                # Check if we have valid HR readings
+                hr_reading = self.hr_sensor.get_reading()
+                if hr_reading and hr_reading.finger_detected and hr_reading.valid_bpm:
+                    # Calculate baseline from recent readings
+                    baseline_bpm = self.hr_sensor.calculate_baseline(duration_seconds=5)
+                    if baseline_bpm:
+                        self.hr_sensor.set_baseline_data(baseline_bpm)
+                        logger.info(f"HR sensor calibrated - Baseline BPM: {baseline_bpm:.1f}")
+                        break
+                
+                elapsed = time.time() - calibration_start
+                if int(elapsed) % 2 == 0 and elapsed > 0:
+                    logger.debug(f"HR calibration wait: {elapsed:.1f}s elapsed")
+                
+                time.sleep(0.1)
+            
+            # If no baseline collected, use default
+            if not self.hr_sensor.has_baseline_data():
+                logger.warning("HR baseline data not collected - using default")
+                self.hr_sensor.set_baseline_data(70.0)  # Default HR baseline
+            
+            logger.info("MAX30102 calibration completed")
             
             logger.info("Calibration completed successfully")
             time.sleep(2)  # Brief pause before session

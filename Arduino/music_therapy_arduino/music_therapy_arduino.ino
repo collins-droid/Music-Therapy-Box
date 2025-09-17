@@ -200,6 +200,11 @@ void collectBaselineData(float conductance) {
       Serial.print("/");
       Serial.println(BASELINE_SAMPLES);
     }
+    
+    // Finish calibration as soon as we have enough samples
+    if (baselineReadings >= BASELINE_SAMPLES) {
+      finishCalibration();
+    }
   }
 }
 

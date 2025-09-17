@@ -77,6 +77,10 @@ class HRSensor:
         self.readings_history = []
         self.max_history = 1000
         
+        # Baseline data storage
+        self.baseline_bpm = None
+        self.baseline_timestamp = None
+        
         # Data queue for external consumers
         self.data_queue = queue.Queue(maxsize=100)
         
@@ -380,9 +384,33 @@ class HRSensor:
             'bpm_min': min(bpm_values),
             'bpm_max': max(bpm_values),
             'bpm_avg': statistics.mean(bpm_values),
-            
             'finger_detection_rate': detection_rate
         }
+    
+    def has_baseline_data(self) -> bool:
+        """Check if baseline data is available"""
+        return self.baseline_bpm is not None
+    
+    def get_baseline_data(self) -> Optional[float]:
+        """Get stored baseline BPM"""
+        return self.baseline_bpm
+    
+    def set_baseline_data(self, bpm: float):
+        """Set baseline BPM data"""
+        self.baseline_bpm = bpm
+        self.baseline_timestamp = time.time()
+        logger.info(f"HR baseline data set - BPM: {bpm:.1f}")
+    
+    def calculate_baseline(self, duration_seconds: int = 10) -> Optional[float]:
+        """Calculate baseline BPM from recent readings"""
+        readings = self.get_readings_in_timeframe(duration_seconds)
+        valid_readings = [r for r in readings if r.valid_bpm and r.finger_detected]
+        
+        if len(valid_readings) >= 5:  # Need at least 5 valid readings
+            bpm_values = [r.bpm for r in valid_readings]
+            import statistics
+            return statistics.mean(bpm_values)
+        return None
 
     def __del__(self):
         """Cleanup when object is destroyed"""
