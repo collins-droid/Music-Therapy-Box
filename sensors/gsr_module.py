@@ -71,10 +71,16 @@ class GSRSensor:
         while not self._stop_event.is_set():
             try:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
-                    line = self.serial_connection.readline().decode('utf-8').strip()
-                    
-                    if line.startswith("GSR_CONDUCTANCE:"):
-                        self._process_data(line)
+                    try:
+                        raw_data = self.serial_connection.readline()
+                        line = raw_data.decode('utf-8', errors='ignore').strip()
+                        
+                        # Only process non-empty lines that start with expected prefix
+                        if line and line.startswith("GSR_CONDUCTANCE:"):
+                            self._process_data(line)
+                    except UnicodeDecodeError:
+                        # Skip invalid data and continue
+                        continue
                 
                 time.sleep(0.01)
                 
