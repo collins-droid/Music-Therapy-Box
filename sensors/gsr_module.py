@@ -28,7 +28,17 @@ class GSRSensor:
         # Auto-detect port
         if port is None:
             import platform
-            port = "COM3" if platform.system() == "Windows" else "/dev/ttyUSB0"
+            if platform.system() == "Windows":
+                port = "COM3"
+            else:
+                # Try common Linux ports
+                import glob
+                possible_ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
+                if possible_ports:
+                    port = possible_ports[0]  # Use first available port
+                    print(f"Auto-detected Arduino port: {port}")
+                else:
+                    port = "/dev/ttyUSB0"  # Default fallback
         
         self.port = port
         self.baudrate = baudrate
@@ -327,9 +337,15 @@ def test_gsr_sensor(duration: int = 30):
     
     sensor = GSRSensor()
     
+    print(f"Sensor connected: {sensor.connected}")
+    print(f"Sensor port: {sensor.port}")
+    
     if not sensor.start_sensor():
         print("Failed to start GSR sensor!")
+        print(f"Connection status: {sensor.connected}")
         return
+    
+    print(f"Sensor started successfully. Running for {duration} seconds...")
     
     try:
         start_time = time.time()
@@ -337,11 +353,15 @@ def test_gsr_sensor(duration: int = 30):
             reading = sensor.get_reading()
             if reading:
                 print(f"GSR: Conductance={reading.conductance:.2f}μS, Valid={reading.valid}")
+            else:
+                print("No GSR reading available")
             
             time.sleep(1)
             
     except KeyboardInterrupt:
         print('Keyboard interrupt detected, exiting...')
+    except Exception as e:
+        print(f'Error during test: {e}')
     
     finally:
         sensor.stop_sensor()
