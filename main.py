@@ -252,23 +252,48 @@ class MusicTherapyBox:
     def _handle_status_message(self, message: str):
         """Handle general status messages"""
         try:
-            if message == "STATUS:IDLE":
-                logger.info("Arduino status: IDLE")
-            elif message == "STATUS:CALIBRATING":
-                logger.info("Arduino status: CALIBRATING")
-            elif message == "STATUS:SESSION_ACTIVE":
-                logger.info("Arduino status: SESSION_ACTIVE")
-            elif message.startswith("STATUS:CALIBRATING,REMAINING:"):
+            # Clean the message string - remove null bytes and other control characters
+            cleaned_message = message.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
+            
+            if cleaned_message == "STATUS:IDLE":
+                # Only log IDLE status changes, not every occurrence
+                if not hasattr(self, '_last_status') or self._last_status != "IDLE":
+                    logger.info("Arduino status: IDLE")
+                    self._last_status = "IDLE"
+            elif cleaned_message == "STATUS:CALIBRATING":
+                if not hasattr(self, '_last_status') or self._last_status != "CALIBRATING":
+                    logger.info("Arduino status: CALIBRATING")
+                    self._last_status = "CALIBRATING"
+            elif cleaned_message == "STATUS:SESSION_ACTIVE":
+                if not hasattr(self, '_last_status') or self._last_status != "SESSION_ACTIVE":
+                    logger.info("Arduino status: SESSION_ACTIVE")
+                    self._last_status = "SESSION_ACTIVE"
+            elif cleaned_message.startswith("STATUS:CALIBRATING,REMAINING:"):
                 # Extract remaining time and convert to LCD command
-                remaining_ms = int(message.split(":")[2])
-                remaining_seconds = remaining_ms // 1000
-                # Forward as LCD command
-                lcd_command = f"LCD:CALIBRATION_PROGRESS:{remaining_seconds}"
-                self._handle_lcd_message(lcd_command)
+                try:
+                    # Handle corrupted data like "4294TING,REMAINING"
+                    parts = cleaned_message.split(":")
+                    if len(parts) >= 3:
+                        remaining_part = parts[2]
+                        # Extract only numeric part
+                        import re
+                        numeric_match = re.search(r'\d+', remaining_part)
+                        if numeric_match:
+                            remaining_ms = int(numeric_match.group())
+                            remaining_seconds = remaining_ms // 1000
+                            # Forward as LCD command
+                            lcd_command = f"LCD:CALIBRATION_PROGRESS:{remaining_seconds}"
+                            self._handle_lcd_message(lcd_command)
+                        else:
+                            logger.warning(f"Could not extract numeric value from STATUS: {cleaned_message}")
+                    else:
+                        logger.warning(f"Invalid STATUS format: {cleaned_message}")
+                except Exception as parse_error:
+                    logger.warning(f"Error parsing STATUS message: {cleaned_message} - {parse_error}")
             else:
-                logger.debug(f"Status message: {message}")
+                logger.debug(f"Status message: {cleaned_message}")
         except Exception as e:
-            logger.error(f"Error handling status message: {e}")
+            logger.error(f"Error handling status message: '{message}' -> '{cleaned_message}' - {e}")
 
     def _handle_arduino_button_event(self, button_type: str):
         """Handle button events from Arduino"""

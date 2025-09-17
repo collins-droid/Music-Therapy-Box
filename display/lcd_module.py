@@ -168,8 +168,14 @@ class LCDDisplay:
                 if len(parts) >= 3:
                     try:
                         remaining_str = parts[2].strip()
-                        remaining = int(remaining_str)
-                        self.show_calibration_progress(remaining)
+                        # Handle corrupted data like "4IBRATION_PROGRESS" or "41.99"
+                        import re
+                        numeric_match = re.search(r'\d+', remaining_str)
+                        if numeric_match:
+                            remaining = int(numeric_match.group())
+                            self.show_calibration_progress(remaining)
+                        else:
+                            logger.warning(f"Could not extract numeric value from LCD progress: '{remaining_str}'")
                     except ValueError as e:
                         logger.warning(f"Could not parse remaining seconds from: '{remaining_str}' - {e}")
                 else:

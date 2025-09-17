@@ -126,9 +126,16 @@ void stopOperation() {
 }
 
 void handleIdleState() {
-  // Send idle status only
-  Serial.println("STATUS:IDLE");
-  Serial.println("LCD:READY");
+  // Send idle status only occasionally to avoid flooding logs
+  static unsigned long lastIdleMessage = 0;
+  unsigned long currentTime = millis();
+  
+  // Send IDLE status only every 5 seconds
+  if (currentTime - lastIdleMessage > 5000) {
+    Serial.println("STATUS:IDLE");
+    Serial.println("LCD:READY");
+    lastIdleMessage = currentTime;
+  }
 }
 
 void handleCalibrationState() {

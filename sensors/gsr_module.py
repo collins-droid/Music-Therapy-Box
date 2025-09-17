@@ -10,7 +10,6 @@ import logging
 import threading
 from typing import Optional, List
 from dataclasses import dataclass
-from datetime import datetime
 import numpy as np
 from collections import deque
 
@@ -86,17 +85,43 @@ class GSRSensor:
                         if not line:
                             continue
                         
-                        # Process different types of messages from Arduino
-                        if line.startswith("GSR_CONDUCTANCE:"):
-                            self._process_data(line)
-                        elif line.startswith("BUTTON:"):
-                            self._process_button_event(line)
-                        elif (line.startswith("BASELINE:") or line.startswith("BASELINE_PROGRESS:") or 
-                              line.startswith("CALIBRATION:") or line.startswith("SESSION:") or 
-                              line.startswith("STATUS:") or line.startswith("LCD:")):
-                            self._process_arduino_message(line)
+                        # Handle potential message concatenation by splitting on known message prefixes
+                        messages = []
+                        prefixes = ["GSR_CONDUCTANCE:", "BUTTON:", "BASELINE:", "BASELINE_PROGRESS:", 
+                                  "CALIBRATION:", "SESSION:", "STATUS:", "LCD:"]
+                        
+                        # Check if line contains multiple messages
+                        current_message = line
+                        for prefix in prefixes:
+                            if prefix in current_message and current_message.count(prefix) > 1:
+                                # Split on the prefix (except first occurrence)
+                                parts = current_message.split(prefix)
+                                if len(parts) > 1:
+                                    messages.append(parts[0] + prefix)  # First message
+                                    for i in range(1, len(parts)):
+                                        if parts[i]:  # Non-empty part
+                                            messages.append(prefix + parts[i])
+                                break
                         else:
-                            logger.debug(f"Unrecognized Arduino message: {line}")
+                            # Single message
+                            messages = [current_message]
+                        
+                        # Process each message
+                        for message in messages:
+                            message = message.strip()
+                            if not message:
+                                continue
+                                
+                            if message.startswith("GSR_CONDUCTANCE:"):
+                                self._process_data(message)
+                            elif message.startswith("BUTTON:"):
+                                self._process_button_event(message)
+                            elif (message.startswith("BASELINE:") or message.startswith("BASELINE_PROGRESS:") or 
+                                  message.startswith("CALIBRATION:") or message.startswith("SESSION:") or 
+                                  message.startswith("STATUS:") or message.startswith("LCD:")):
+                                self._process_arduino_message(message)
+                            else:
+                                logger.debug(f"Unrecognized Arduino message: {message}")
                     except UnicodeDecodeError:
                         # Skip invalid data and continue
                         continue
