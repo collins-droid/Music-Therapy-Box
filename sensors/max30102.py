@@ -156,3 +156,4 @@ class MAX30102():
                 count -= 1
 
         return red_buf, ir_buf
+

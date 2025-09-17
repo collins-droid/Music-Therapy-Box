@@ -9,14 +9,14 @@ import threading
 import time
 import logging
 import queue
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
 
 try:
-    from max30102 import MAX30102
-    import hrcalc
+    from .max30102 import MAX30102
+    from . import hrcalc
     MAX30102_AVAILABLE = True
 except ImportError:
     MAX30102_AVAILABLE = False
