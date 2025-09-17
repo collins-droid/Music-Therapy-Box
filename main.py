@@ -107,6 +107,17 @@ class MusicTherapyBox:
             self.data_collector = DataCollector(sampling_rate=self.config['sampling_rate'])
             self.feature_extractor = FeatureExtractor()
             
+            # Start sensor modules
+            logger.info("Starting sensor modules...")
+            if not self.gsr_sensor.start_sensor():
+                logger.warning("Failed to start GSR sensor")
+            if not self.hr_sensor.start_sensor():
+                logger.warning("Failed to start HR sensor")
+            
+            # Give sensors time to initialize
+            import time
+            time.sleep(2)
+            
             # Test all modules
             if not all([
                 self.gsr_sensor.is_connected(),

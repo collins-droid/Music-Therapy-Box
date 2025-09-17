@@ -16,6 +16,10 @@ def test_gsr_sensor():
         from sensors.gsr_module import GSRSensor
         logger.info("Testing GSR sensor...")
         gsr = GSRSensor()
+        # Start the sensor before testing connection
+        gsr.start_sensor()
+        import time
+        time.sleep(1)  # Give it time to start
         connected = gsr.is_connected()
         logger.info(f"GSR sensor: {'✓ Connected' if connected else '✗ Failed'}")
         return connected
@@ -29,6 +33,10 @@ def test_hr_sensor():
         from sensors.hr_module import HRSensor
         logger.info("Testing HR sensor...")
         hr = HRSensor()
+        # Start the sensor before testing connection
+        hr.start_sensor()
+        import time
+        time.sleep(1)  # Give it time to start
         connected = hr.is_connected()
         logger.info(f"HR sensor: {'✓ Connected' if connected else '✗ Failed'}")
         return connected
