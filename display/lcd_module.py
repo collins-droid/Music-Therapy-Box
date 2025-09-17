@@ -37,8 +37,13 @@ class LCDDisplay:
     def _initialize(self) -> bool:
         """Initialize the LCD display hardware using RPi_I2C_driver"""
         try:
-            # Import the custom I2C driver
-            from .RPi_I2C_driver import lcd
+            # Import the custom I2C driver - handle both relative and absolute imports
+            try:
+                from .RPi_I2C_driver import lcd
+            except ImportError:
+                # Fallback for when running as main module
+                import RPi_I2C_driver
+                lcd = RPi_I2C_driver.lcd
             
             self.lcd = lcd()
             self.connected = True
