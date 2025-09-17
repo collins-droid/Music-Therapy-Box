@@ -1,61 +1,56 @@
 /*
-Music Therapy Box - Arduino UNO Controller
+Music Therapy Box - Arduino UNO Controller (Optimized)
 @file music_therapy_arduino.ino
 @date 2025
 GSR sensor with conductance conversion, button control, and LED feedback
 */
 
 // Pin definitions
-const int GSR_PIN = A0;        // GSR sensor connected to analog pin A0
-const int START_BUTTON = 2;    // START button connected to digital pin 2
-const int STOP_BUTTON = 3;      // STOP button connected to digital pin 3
-const int LED1_PIN = 4;         // LED1 (calibration indicator) on digital pin 4
-const int LED2_PIN = 5;         // LED2 (session indicator) on digital pin 5
+const int GSR_PIN = A0;
+const int START_BUTTON = 2;
+const int STOP_BUTTON = 3;
+const int LED1_PIN = 4; // Calibration indicator
+const int LED2_PIN = 5; // Session indicator
 
-// GSR sensor variables
-int gsrValue = 0;
-int gsr_average = 0;
-float conductance = 0.0;
+// System states
+enum SystemState {
+  IDLE,
+  CALIBRATING, 
+  SESSION_ACTIVE
+};
 
-// Button state variables
-bool startButtonPressed = false;
-bool stopButtonPressed = false;
+SystemState currentState = IDLE;
+
+// Button variables
 bool lastStartState = HIGH;
 bool lastStopState = HIGH;
 
-// System state variables
-bool calibrationActive = false;
-bool sessionActive = false;
-unsigned long calibrationStartTime = 0;
-const unsigned long CALIBRATION_DURATION = 10000; // 10 seconds in milliseconds
+// Timing variables
+unsigned long stateStartTime = 0;
+const unsigned long CALIBRATION_DURATION = 10000; // 10 seconds
 
-// Baseline data collection variables
+// Baseline collection
 float gsrBaselineSum = 0.0;
 float hrBaselineSum = 0.0;
 int baselineReadings = 0;
-const int BASELINE_SAMPLES = 50; // Collect 50 samples during calibration
-float gsrBaseline = 0.0;
-float hrBaseline = 0.0;
+const int BASELINE_SAMPLES = 50;
 
-// GSR sensor configuration
-const float VCC = 5.0;           // Supply voltage
-const float ADC_RESOLUTION = 1024.0; // 10-bit ADC resolution
-const float VOLTAGE_DIVIDER_RATIO = 2.0; // GSR module 2 has built-in voltage divider
+// GSR configuration
+const float VCC = 5.0;
+const float ADC_RESOLUTION = 1024.0;
+const float VOLTAGE_DIVIDER_RATIO = 2.0;
 
 void setup() {
   Serial.begin(9600);
   
-  // Configure pins
   pinMode(START_BUTTON, INPUT_PULLUP);
   pinMode(STOP_BUTTON, INPUT_PULLUP);
   pinMode(LED1_PIN, OUTPUT);
   pinMode(LED2_PIN, OUTPUT);
   
-  // Initialize LEDs to OFF
   digitalWrite(LED1_PIN, LOW);
   digitalWrite(LED2_PIN, LOW);
   
-  // Set analog reference to 5V
   analogReference(DEFAULT);
   
   Serial.println("Music Therapy Box Arduino Ready");
@@ -63,67 +58,55 @@ void setup() {
 }
 
 void loop() {
-  // Read button states
-  readButtons();
+  handleButtons();
   
-  // Handle button events
-  handleButtonEvents();
+  switch(currentState) {
+    case IDLE:
+      handleIdleState();
+      break;
+    case CALIBRATING:
+      handleCalibrationState();
+      break;
+    case SESSION_ACTIVE:
+      handleSessionState();
+      break;
+  }
   
-  // Read GSR sensor
-  readGSRSensor();
-  
-  // Handle system states
-  handleCalibration();
-  handleSession();
-  
-  // Send data to Raspberry Pi
-  sendDataToPi();
-  
-  delay(100); // Main loop delay
+  delay(100);
 }
 
-void readButtons() {
-  // Read current button states
+void handleButtons() {
   bool currentStartState = digitalRead(START_BUTTON);
   bool currentStopState = digitalRead(STOP_BUTTON);
   
-  // Detect button press (LOW when pressed due to INPUT_PULLUP)
-  startButtonPressed = (lastStartState == HIGH && currentStartState == LOW);
-  stopButtonPressed = (lastStopState == HIGH && currentStopState == LOW);
-  
-  // Update last states
-  lastStartState = currentStartState;
-  lastStopState = currentStopState;
-}
-
-void handleButtonEvents() {
-  if (startButtonPressed) {
-    if (!calibrationActive && !sessionActive) {
-      // Start calibration
+  // Start button pressed
+  if (lastStartState == HIGH && currentStartState == LOW) {
+    if (currentState == IDLE) {
       startCalibration();
     }
   }
   
-  if (stopButtonPressed) {
-    if (calibrationActive || sessionActive) {
-      // Stop current operation
+  // Stop button pressed
+  if (lastStopState == HIGH && currentStopState == LOW) {
+    if (currentState != IDLE) {
       stopOperation();
     }
   }
+  
+  lastStartState = currentStartState;
+  lastStopState = currentStopState;
 }
 
 void startCalibration() {
-  calibrationActive = true;
-  sessionActive = false;
-  calibrationStartTime = millis();
+  currentState = CALIBRATING;
+  stateStartTime = millis();
   
-  // Reset baseline collection variables
+  // Reset baseline variables
   gsrBaselineSum = 0.0;
   hrBaselineSum = 0.0;
   baselineReadings = 0;
   
-  // Turn on LED1 (calibration indicator) and LED2 (session indicator)
-  // LED2 remains ON during calibration as requested
+  // Turn on both LEDs during calibration
   digitalWrite(LED1_PIN, HIGH);
   digitalWrite(LED2_PIN, HIGH);
   
@@ -133,10 +116,8 @@ void startCalibration() {
 }
 
 void stopOperation() {
-  calibrationActive = false;
-  sessionActive = false;
+  currentState = IDLE;
   
-  // Turn off all LEDs
   digitalWrite(LED1_PIN, LOW);
   digitalWrite(LED2_PIN, LOW);
   
@@ -144,86 +125,72 @@ void stopOperation() {
   Serial.println("OPERATION:STOPPED");
 }
 
-void handleCalibration() {
-  if (calibrationActive) {
-    unsigned long elapsed = millis() - calibrationStartTime;
+void handleIdleState() {
+  // Send idle status only
+  Serial.println("STATUS:IDLE");
+  Serial.println("LCD:READY");
+}
+
+void handleCalibrationState() {
+  unsigned long elapsed = millis() - stateStartTime;
+  unsigned long remaining = CALIBRATION_DURATION - elapsed;
+  
+  if (remaining > 0) {
+    // Read GSR and collect baseline data
+    float conductance = readGSRSensor();
+    collectBaselineData(conductance);
     
-    // Collect baseline data during calibration
-    collectBaselineData();
-    
-    // Update LCD with progress
-    unsigned long remaining = CALIBRATION_DURATION - elapsed;
-    if (remaining > 0) {
-      Serial.print("LCD:CALIBRATION_PROGRESS:");
-      Serial.println(remaining / 1000); // Send remaining seconds
-    }
-    
-    if (elapsed >= CALIBRATION_DURATION) {
-      // Calculate baseline averages
-      if (baselineReadings > 0) {
-        gsrBaseline = gsrBaselineSum / baselineReadings;
-        hrBaseline = hrBaselineSum / baselineReadings;
-        
-        // Send baseline data to Raspberry Pi
-        Serial.print("BASELINE:GSR:");
-        Serial.print(gsrBaseline, 2);
-        Serial.print(",HR:");
-        Serial.println(hrBaseline, 2);
-      }
-      
-      // Calibration complete
-      calibrationActive = false;
-      sessionActive = true;
-      
-      // Keep LED2 ON (session indicator), turn off LED1
-      digitalWrite(LED1_PIN, LOW);
-      digitalWrite(LED2_PIN, HIGH);
-      
-      Serial.println("CALIBRATION:COMPLETE");
-      Serial.println("SESSION:STARTED");
-      Serial.println("LCD:CALIBRATION_COMPLETE");
-    }
+    // Send data and progress
+    Serial.print("GSR_CONDUCTANCE:");
+    Serial.println(conductance, 2);
+    Serial.print("STATUS:CALIBRATING,REMAINING:");
+    Serial.println(remaining);
+    Serial.print("LCD:CALIBRATION_PROGRESS:");
+    Serial.println(remaining / 1000);
+  } else {
+    // Calibration complete
+    finishCalibration();
   }
 }
 
-void handleSession() {
-  if (sessionActive) {
-    // Session is active - LED2 remains ON
-    //LEd 2 is the yellow led thus it should remain ON during the session
-    // Additional session logic can be added here
-  }
+void handleSessionState() {
+  // Read GSR during active session
+  float conductance = readGSRSensor();
+  
+  Serial.print("GSR_CONDUCTANCE:");
+  Serial.println(conductance, 2);
+  Serial.println("STATUS:SESSION_ACTIVE");
+  Serial.println("LCD:SESSION_ACTIVE");
 }
 
-void readGSRSensor() {
-  // Read GSR sensor with averaging
-  long gsrSum = 0;
+float readGSRSensor() {
+  // Average 10 readings for stability
+  long sum = 0;
   for(int i = 0; i < 10; i++) {
-    gsrValue = analogRead(GSR_PIN);
-    gsrSum += gsrValue;
+    sum += analogRead(GSR_PIN);
     delay(2);
   }
-  gsr_average = gsrSum / 10;
+  int average = sum / 10;
   
-  // Convert ADC reading to conductance
-  conductance = calculateConductance(gsr_average);
+  // Convert to conductance
+  float voltage = (average * VCC) / ADC_RESOLUTION;
+  float gsrVoltage = voltage * VOLTAGE_DIVIDER_RATIO;
+  
+  if (gsrVoltage <= 0) return 0.0;
+  
+  float knownResistor = 10000.0; // 10k ohm
+  float resistance = (VCC - gsrVoltage) * knownResistor / gsrVoltage;
+  
+  return (resistance > 0) ? (1000000.0 / resistance) : 0.0; // microsiemens
 }
 
-void collectBaselineData() {
-  // Collect baseline data during calibration
-  if (calibrationActive && baselineReadings < BASELINE_SAMPLES) {
-    // Add GSR conductance to baseline sum
+void collectBaselineData(float conductance) {
+  if (baselineReadings < BASELINE_SAMPLES) {
     gsrBaselineSum += conductance;
-    
-    // MAX30102 Heart Rate Sensor is connected to Raspberry Pi via I2C
-    // Arduino only collects GSR data and sends it to Pi
-    // Pi will collect actual HR data from MAX30102 and combine with GSR baseline
-    // For Arduino baseline collection, we simulate HR based on GSR patterns
-    float simulatedHR = 70.0 + (conductance / 1000.0) * 10.0; // Simulate HR variation
+    float simulatedHR = 70.0 + (conductance / 1000.0) * 10.0;
     hrBaselineSum += simulatedHR;
-    
     baselineReadings++;
     
-    // Send progress update every 10 samples
     if (baselineReadings % 10 == 0) {
       Serial.print("BASELINE_PROGRESS:");
       Serial.print(baselineReadings);
@@ -233,58 +200,24 @@ void collectBaselineData() {
   }
 }
 
-float calculateConductance(int adcValue) {
-  // Convert ADC reading to voltage
-  float voltage = (adcValue * VCC) / ADC_RESOLUTION;
-  
-  // Calculate resistance using voltage divider formula
-  // Vout = Vin * R2 / (R1 + R2)
-  // For GSR module 2 with built-in voltage divider
-  float resistance = 0.0;
-  
-  if (voltage > 0) {
-    // Assuming the voltage divider has equal resistors (R1 = R2)
-    // Vout = Vin * R2 / (R1 + R2) = Vin * R / (R + R) = Vin / 2
-    // So if we measure Vout, the actual voltage across GSR is 2 * Vout
-    float gsrVoltage = voltage * VOLTAGE_DIVIDER_RATIO;
+void finishCalibration() {
+  // Calculate and send baseline averages
+  if (baselineReadings > 0) {
+    float gsrBaseline = gsrBaselineSum / baselineReadings;
+    float hrBaseline = hrBaselineSum / baselineReadings;
     
-    // Calculate resistance: R = (VCC - Vgsr) / (Vgsr / R_known)
-    // For GSR module 2, we need to account for the known resistor in the divider
-    float knownResistor = 10000.0; // 10k ohm (typical value for GSR module 2)
-    resistance = (VCC - gsrVoltage) * knownResistor / gsrVoltage;
+    Serial.print("BASELINE:GSR:");
+    Serial.print(gsrBaseline, 2);
+    Serial.print(",HR:");
+    Serial.println(hrBaseline, 2);
   }
   
-  // Convert resistance to conductance (microsiemens)
-  float conductance_us = 0.0;
-  if (resistance > 0) {
-    conductance_us = 1000000.0 / resistance; // Convert to microsiemens
-  }
+  // Transition to session
+  currentState = SESSION_ACTIVE;
+  digitalWrite(LED1_PIN, LOW);  // Turn off calibration LED
+  digitalWrite(LED2_PIN, HIGH); // Keep session LED on
   
-  return conductance_us;
-}
-
-void sendDataToPi() {
-  // Send GSR conductance data (Arduino already computed this)
-  Serial.print("GSR_CONDUCTANCE:");
-  Serial.println(conductance, 2);
-  
-  // Send system status
-  if (calibrationActive) {
-    unsigned long elapsed = millis() - calibrationStartTime;
-    unsigned long remaining = CALIBRATION_DURATION - elapsed;
-    Serial.print("STATUS:CALIBRATING,REMAINING:");
-    Serial.println(remaining);
-    
-    // Send LCD update for calibration progress
-    if (remaining > 0) {
-      Serial.print("LCD:CALIBRATION_PROGRESS:");
-      Serial.println(remaining / 1000);
-    }
-  } else if (sessionActive) {
-    Serial.println("STATUS:SESSION_ACTIVE");
-    Serial.println("LCD:SESSION_ACTIVE");
-  } else {
-    Serial.println("STATUS:IDLE");
-    Serial.println("LCD:READY");
-  }
+  Serial.println("CALIBRATION:COMPLETE");
+  Serial.println("SESSION:STARTED");
+  Serial.println("LCD:CALIBRATION_COMPLETE");
 }

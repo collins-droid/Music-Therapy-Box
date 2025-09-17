@@ -17,9 +17,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 class MusicCategory(Enum):
-    STRESS_RELIEF = "stress"
-    CALMING = "no_stress"
-    NEUTRAL = "neutral"
+    STRESS_RELIEF = "stress_relief"
+    CALMING = "calming"
 
 @dataclass
 class Song:
@@ -50,8 +49,7 @@ class MusicPlayer:
         # Music library
         self.songs: Dict[MusicCategory, List[Song]] = {
             MusicCategory.STRESS_RELIEF: [],
-            MusicCategory.CALMING: [],
-            MusicCategory.NEUTRAL: []
+            MusicCategory.CALMING: []
         }
         
         # Playback control
