@@ -353,11 +353,9 @@ class HRSensor:
         if not self.connected or not self.running:
             return False
         
-        # Check if we have recent data
-        if self.latest_reading:
-            return (time.time() - self.latest_reading.timestamp) < 10.0
-        
-        return False
+        # If sensor is running and connected, consider it connected
+        # (HR sensor may not have data without finger, but hardware is working)
+        return True
 
     def get_statistics(self) -> dict:
         """

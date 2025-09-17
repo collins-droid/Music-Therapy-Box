@@ -112,9 +112,22 @@ class GSRSensor:
     def _parse_gsr_data(self, data_line: str):
         """Parse GSR data from Arduino serial output"""
         try:
-            # Expected format: "GSR_CONDUCTANCE:25.45"
-            conductance_part = data_line.split(':')[1]
-            conductance = float(conductance_part)
+            # Expected format: "GSR_CONDUCTANCE:25.45" or "GSR_CONDUCTANCE:0.00CONDUCTANCE:0.00"
+            # Handle duplicate data by taking the first value
+            if 'CONDUCTANCE:' in data_line:
+                # Split by 'CONDUCTANCE:' and take the first part after ':'
+                parts = data_line.split('CONDUCTANCE:')
+                if len(parts) >= 2:
+                    conductance_part = parts[1].split('CONDUCTANCE')[0]  # Remove any trailing CONDUCTANCE
+                    conductance = float(conductance_part)
+                else:
+                    # Fallback to original method
+                    conductance_part = data_line.split(':')[1]
+                    conductance = float(conductance_part)
+            else:
+                # Original parsing method
+                conductance_part = data_line.split(':')[1]
+                conductance = float(conductance_part)
             
             # Validate conductance range
             valid = (self.config['min_conductance'] <= conductance <= self.config['max_conductance'])
