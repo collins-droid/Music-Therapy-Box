@@ -151,8 +151,8 @@ class HRSensor:
     def _calculate_vitals(self):
         """Calculate heart rate  from collected data"""
         try:
-            # Calculate HR and SpO2
-            bpm, valid_bpm= hrcalc.calc_hr(
+            # Calculate HR (ignore SpO2 since we don't use it for ML)
+            bpm, valid_bpm, _, _ = hrcalc.calc_hr_and_spo2(
                 self.ir_data, self.red_data
             )
             
