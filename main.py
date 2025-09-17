@@ -114,9 +114,9 @@ class MusicTherapyBox:
             if not self.hr_sensor.start_sensor():
                 logger.warning("Failed to start HR sensor")
             
-            # Give sensors time to initialize
+            # Give sensors time to collect data
             import time
-            time.sleep(2)
+            time.sleep(5)
             
             # Test all modules
             if not all([
