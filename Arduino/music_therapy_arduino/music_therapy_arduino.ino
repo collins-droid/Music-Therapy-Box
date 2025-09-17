@@ -147,13 +147,9 @@ void handleCalibrationState() {
     float conductance = readGSRSensor();
     collectBaselineData(conductance);
     
-    // Send data and progress
+    // Send data
     Serial.print("GSR_CONDUCTANCE:");
     Serial.println(conductance, 2);
-    Serial.print("STATUS:CALIBRATING,REMAINING:");
-    Serial.println(remaining);
-    Serial.print("LCD:CALIBRATION_PROGRESS:");
-    Serial.println(remaining / 1000);
   } else {
     // Calibration complete
     finishCalibration();

@@ -163,23 +163,8 @@ class LCDDisplay:
             elif cleaned_command == "LCD:READY":
                 self.display("System Ready\nPress START")
             elif cleaned_command.startswith("LCD:CALIBRATION_PROGRESS:"):
-                # Extract the remaining seconds value safely
-                parts = cleaned_command.split(":")
-                if len(parts) >= 3:
-                    try:
-                        remaining_str = parts[2].strip()
-                        # Handle corrupted data like "4IBRATION_PROGRESS" or "41.99"
-                        import re
-                        numeric_match = re.search(r'\d+', remaining_str)
-                        if numeric_match:
-                            remaining = int(numeric_match.group())
-                            self.show_calibration_progress(remaining)
-                        else:
-                            logger.warning(f"Could not extract numeric value from LCD progress: '{remaining_str}'")
-                    except ValueError as e:
-                        logger.warning(f"Could not parse remaining seconds from: '{remaining_str}' - {e}")
-                else:
-                    logger.warning(f"Invalid LCD progress command format: '{cleaned_command}'")
+                # LCD progress not needed - just log for debugging
+                logger.debug(f"LCD progress command received (ignored): {cleaned_command}")
             else:
                 logger.debug(f"Unknown LCD command: '{cleaned_command}'")
                 

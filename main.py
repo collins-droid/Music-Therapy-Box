@@ -269,27 +269,8 @@ class MusicTherapyBox:
                     logger.info("Arduino status: SESSION_ACTIVE")
                     self._last_status = "SESSION_ACTIVE"
             elif cleaned_message.startswith("STATUS:CALIBRATING,REMAINING:"):
-                # Extract remaining time and convert to LCD command
-                try:
-                    # Handle corrupted data like "4294TING,REMAINING"
-                    parts = cleaned_message.split(":")
-                    if len(parts) >= 3:
-                        remaining_part = parts[2]
-                        # Extract only numeric part
-                        import re
-                        numeric_match = re.search(r'\d+', remaining_part)
-                        if numeric_match:
-                            remaining_ms = int(numeric_match.group())
-                            remaining_seconds = remaining_ms // 1000
-                            # Forward as LCD command
-                            lcd_command = f"LCD:CALIBRATION_PROGRESS:{remaining_seconds}"
-                            self._handle_lcd_message(lcd_command)
-                        else:
-                            logger.warning(f"Could not extract numeric value from STATUS: {cleaned_message}")
-                    else:
-                        logger.warning(f"Invalid STATUS format: {cleaned_message}")
-                except Exception as parse_error:
-                    logger.warning(f"Error parsing STATUS message: {cleaned_message} - {parse_error}")
+                # Just log calibration progress, no LCD updates needed
+                logger.debug(f"Calibration progress: {cleaned_message}")
             else:
                 logger.debug(f"Status message: {cleaned_message}")
         except Exception as e:
@@ -380,7 +361,7 @@ class MusicTherapyBox:
             
         except Exception as e:
             logger.error(f"Calibration failed: {e}")
-            self.lcd.display("Calibration failed!\nPlease try again.")
+            self.lcd.display("Calibration failed!\nPlease wear gloves")
             self.state = SystemState.IDLE
             return False
 
