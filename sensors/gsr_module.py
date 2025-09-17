@@ -200,7 +200,7 @@ class GSRSensor:
             self.latest_reading = reading
             self.readings_history.append(reading)
             
-            logger.info(f"GSR: {conductance:.2f}μS, Valid={valid}")
+            logger.debug(f"GSR: {conductance:.2f}μS, Valid={valid}")
             
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse GSR data: '{data_line}' -> '{cleaned_line}' - {e}")
@@ -229,6 +229,12 @@ class GSRSensor:
             if data_line.startswith("BASELINE:"):
                 logger.info(f"BASELINE message received: {data_line}")
                 self._parse_and_store_baseline_data(data_line)
+            elif data_line.startswith("BASELINE_PROGRESS:"):
+                logger.info(f"BASELINE_PROGRESS message received: {data_line}")
+            elif data_line.startswith("CALIBRATION:"):
+                logger.info(f"CALIBRATION message received: {data_line}")
+            elif data_line.startswith("SESSION:"):
+                logger.info(f"SESSION message received: {data_line}")
             
             # Forward message to callback if available
             if self.message_callback:

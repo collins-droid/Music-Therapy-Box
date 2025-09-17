@@ -294,6 +294,9 @@ class MusicTherapyBox:
             logger.info("Waiting for Arduino calibration to complete...")
             self.lcd.show_waiting_for_arduino()
             
+            # Debug: Log when we start waiting
+            logger.info("DEBUG: Starting calibration wait loop...")
+            
             while time.time() - start_time < calibration_timeout:
                 # Check if GSR sensor has baseline data
                 if self.gsr_sensor.has_baseline_data():
@@ -325,6 +328,14 @@ class MusicTherapyBox:
             
             # Cleanup
             self.lcd.display("Calibration complete!\nStarting session...")
+            
+            # Add MAX30102 calibration after GSR calibration
+            logger.info("Starting MAX30102 calibration...")
+            self.lcd.display("Calibrating HR sensor...")
+            
+            # Give HR sensor time to calibrate
+            import time
+            time.sleep(3)
             
             logger.info("Calibration completed successfully")
             time.sleep(2)  # Brief pause before session
