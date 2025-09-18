@@ -118,6 +118,7 @@ class HRSensor:
                 num_bytes = self.sensor.get_data_present()
                 
                 if num_bytes > 0:
+                    logger.debug(f"MAX30102 data available: {num_bytes} bytes")
                     # Read all available data
                     while num_bytes > 0:
                         red, ir = self.sensor.read_fifo()
@@ -138,6 +139,15 @@ class HRSensor:
                         # Calculate HR and SpO2 when we have enough data
                         if len(self.ir_data) == self.config['window_size']:
                             self._calculate_vitals()
+                else:
+                    # Log occasionally when no data is available
+                    if hasattr(self, '_no_data_count'):
+                        self._no_data_count += 1
+                    else:
+                        self._no_data_count = 1
+                    
+                    if self._no_data_count % 1000 == 0:  # Log every 1000 iterations (10 seconds)
+                        logger.debug(f"MAX30102: No data available (iteration {self._no_data_count})")
                 
                 time.sleep(self.LOOP_TIME)
                 

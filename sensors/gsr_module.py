@@ -223,7 +223,7 @@ class GSRSensor:
     def _process_arduino_message(self, data_line: str):
         """Process Arduino status and control messages"""
         try:
-            logger.info(f"Arduino message: {data_line}")
+            logger.debug(f"Arduino message: {data_line}")
             
             # Special handling for baseline messages
             if data_line.startswith("BASELINE:"):

@@ -340,6 +340,13 @@ class MusicTherapyBox:
             while time.time() - calibration_start < calibration_duration:
                 # Check if we have valid HR readings
                 hr_reading = self.hr_sensor.get_reading()
+                
+                # Debug: Log HR sensor status
+                if int(time.time() - calibration_start) % 2 == 0 and time.time() - calibration_start > 0:
+                    logger.debug(f"HR calibration: reading={hr_reading is not None}, "
+                               f"finger_detected={hr_reading.finger_detected if hr_reading else False}, "
+                               f"valid_bpm={hr_reading.valid_bpm if hr_reading else False}")
+                
                 if hr_reading and hr_reading.finger_detected and hr_reading.valid_bpm:
                     # Calculate baseline from recent readings
                     baseline_bpm = self.hr_sensor.calculate_baseline(duration_seconds=5)
