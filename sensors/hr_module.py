@@ -40,7 +40,7 @@ class HRSensor:
     """
     
     LOOP_TIME = 0.01
-    DETECTION_THRESHOLD = 50000  # Threshold for finger detection
+    DETECTION_THRESHOLD = 50000  # Original threshold for finger detection
     
     def __init__(self, print_raw: bool = False, print_result: bool = False):
         """
@@ -173,32 +173,39 @@ class HRSensor:
             # Check finger detection
             mean_ir = np.mean(self.ir_data)
             mean_red = np.mean(self.red_data)
-            finger_detected = (mean_ir >= self.config['detection_threshold'] or 
-                             mean_red >= self.config['detection_threshold'])
             
-            if not finger_detected:
-                # No finger detected
+            # Log finger detection status occasionally
+            if hasattr(self, '_finger_log_count'):
+                self._finger_log_count += 1
+            else:
+                self._finger_log_count = 1
+            
+            if self._finger_log_count % 100 == 0:  # Log every 100 calculations
+                logger.debug(f"Finger detection: IR={mean_ir:.0f}, Red={mean_red:.0f}, "
+                           f"Threshold=50000")
+            
+            # Check finger detection using original logic
+            if (mean_ir < 50000 and mean_red < 50000):
+                # No finger detected - set BPM to 0
                 self.bpm = 0.0
-              
                 self.finger_detected = False
                 valid_bpm = False
-              
                 
                 if self.print_result:
                     print("Finger not detected")
             else:
                 self.finger_detected = True
                 
-                # Smooth BPM using history
+                # Smooth BPM using history (original logic)
                 if valid_bpm:
                     self.bpm_history.append(bpm)
-                    while len(self.bpm_history) > self.config['bpm_smoothing']:
+                    while len(self.bpm_history) > 4:  # Original uses 4, not config
                         self.bpm_history.pop(0)
                     
                     self.bpm = np.mean(self.bpm_history)
-                   
                     
-                  
+                    if self.print_result:
+                        print(f"BPM: {self.bpm:.1f}")
             
             # Create reading object
             reading = HRReading(
@@ -208,7 +215,7 @@ class HRSensor:
                 red_value=int(mean_red),
                 timestamp=time.time(),
                 valid_bpm=valid_bpm,
-                finger_detected=finger_detected
+                finger_detected=self.finger_detected
             )
             
             # Update latest reading

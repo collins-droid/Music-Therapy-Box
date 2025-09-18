@@ -331,7 +331,7 @@ class MusicTherapyBox:
             
             # Add MAX30102 calibration after GSR calibration
             logger.info("Starting MAX30102 calibration...")
-            self.lcd.display("Calibrating HR sensor...\nPlace finger on sensor")
+            self.lcd.display("Calibrating HR sensor...\nPress finger HARD on sensor")
             
             # Give HR sensor time to calibrate and collect baseline data
             calibration_start = time.time()
