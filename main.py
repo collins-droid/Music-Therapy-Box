@@ -408,9 +408,15 @@ class MusicTherapyBox:
                 # Step 2: Extract features
                 features = self.feature_extractor.extract_features(sensor_window)
                 
-                # Step 3: Predict stress level
-                prediction = self.stress_predictor.predict(features)
-                confidence = self.stress_predictor.get_confidence()
+                if not features:
+                    logger.warning("Feature extraction failed - using default prediction")
+                    # Use default prediction when feature extraction fails
+                    prediction = "no_stress"
+                    confidence = 0.5
+                else:
+                    # Step 3: Predict stress level
+                    prediction = self.stress_predictor.predict(features)
+                    confidence = self.stress_predictor.get_confidence()
                 
                 logger.info(f"Stress prediction: {prediction} (confidence: {confidence:.2f})")
                 

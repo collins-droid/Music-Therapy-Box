@@ -163,7 +163,14 @@ void handleSessionState() {
   Serial.print("GSR_CONDUCTANCE:");
   Serial.println(conductance, 2);
   Serial.println("STATUS:SESSION_ACTIVE");
-  Serial.println("LCD:SESSION_ACTIVE");
+  
+  // Only send LCD command occasionally to avoid flooding serial
+  static unsigned long lastLcdMessage = 0;
+  unsigned long currentTime = millis();
+  if (currentTime - lastLcdMessage > 5000) { // Every 5 seconds
+    Serial.println("LCD:SESSION_ACTIVE");
+    lastLcdMessage = currentTime;
+  }
 }
 
 float readGSRSensor() {

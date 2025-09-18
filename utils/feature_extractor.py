@@ -57,8 +57,14 @@ class FeatureExtractor:
             valid_readings = [r for r in readings if r.valid]
             
             if len(valid_readings) < self.config['min_samples']:
-                logger.warning(f"Insufficient valid readings: {len(valid_readings)}")
-                return None
+                logger.warning(f"Insufficient valid readings: {len(valid_readings)} (need at least {self.config['min_samples']})")
+                
+                # If we have some valid readings but not enough, try to use them anyway
+                if len(valid_readings) > 0:
+                    logger.info(f"Using {len(valid_readings)} valid readings for feature extraction")
+                else:
+                    logger.warning("No valid readings available - returning None")
+                    return None
             
             # Separate GSR and HR data
             gsr_values = [r.gsr_conductance for r in valid_readings if r.gsr_conductance is not None]

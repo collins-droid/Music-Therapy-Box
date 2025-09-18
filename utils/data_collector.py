@@ -169,7 +169,16 @@ class DataCollector:
                 baseline=baseline
             )
             
+            # Calculate statistics
+            valid_readings = [r for r in readings if r.valid]
+            gsr_readings = [r for r in readings if r.gsr_conductance is not None]
+            hr_readings = [r for r in readings if r.heart_rate is not None]
+            
             logger.info(f"Data window collected: {len(readings)} readings over {window.duration:.1f}s")
+            logger.info(f"Valid readings: {len(valid_readings)}")
+            logger.info(f"GSR readings: {len(gsr_readings)}")
+            logger.info(f"HR readings: {len(hr_readings)}")
+            
             return window
             
         except Exception as e:
