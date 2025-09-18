@@ -257,8 +257,12 @@ class MusicTherapyBox:
     def _handle_arduino_message(self, message: str):
         """Handle Arduino status and control messages"""
         try:
-            # Clean the message string - remove null bytes and other control characters
-            cleaned_message = message.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
+            # Enhanced character cleaning for Arduino messages
+            import re
+            
+            # Remove all control characters and normalize whitespace
+            cleaned_message = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', message)
+            cleaned_message = re.sub(r'\s+', ' ', cleaned_message).strip()
             
             logger.debug(f"Arduino message: '{message}' -> cleaned: '{cleaned_message}'")
             
