@@ -76,23 +76,16 @@ class LCDDisplay:
                 logger.warning("LCD not connected - cannot display text")
                 return
             
-            # Clean the text to remove any problematic characters
-            import re
-            # Remove control characters but keep newlines for line breaks
-            cleaned_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
-            
             # Update current message
-            self.current_message = DisplayMessage(text=cleaned_text, timestamp=time.time())
+            self.current_message = DisplayMessage(text=text, timestamp=time.time())
             
             if clear:
                 self.lcd_clear()
             
             # Split text into lines and display
-            lines = cleaned_text.split('\n')
+            lines = text.split('\n')
             for i, line in enumerate(lines[:self.height]):
-                # Ensure line doesn't exceed LCD width and clean each line
-                display_line = line[:self.width]
-                self.lcd_display_string(display_line, i + 1)
+                self.lcd_display_string(line[:self.width], i + 1)
                 
         except Exception as e:
             logger.error(f"Display error: {e}")
@@ -156,16 +149,11 @@ class LCDDisplay:
     def handle_arduino_lcd_command(self, command: str):
         """Handle LCD commands from Arduino serial"""
         try:
-            # Enhanced character cleaning for LCD commands
-            import re
-            
-            # Remove all control characters and normalize whitespace
-            cleaned_command = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', command)
-            cleaned_command = re.sub(r'\s+', ' ', cleaned_command).strip()
+            # Clean the command string - remove null bytes and other control characters
+            cleaned_command = command.replace('\x00', '').replace('\r', '').replace('\n', '').strip()
             
             logger.debug(f"LCD command received: '{command}' -> cleaned: '{cleaned_command}'")
             
-            # Handle LCD commands with improved matching
             if cleaned_command == "LCD:CALIBRATION_IN_PROGRESS":
                 self.display("Calibrating...\nPlease wait")
             elif cleaned_command == "LCD:CALIBRATION_COMPLETE":

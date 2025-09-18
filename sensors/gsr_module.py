@@ -96,24 +96,14 @@ class GSRSensor:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
                     try:
                         raw_data = self.serial_connection.readline()
+                        line = raw_data.decode('utf-8', errors='ignore').strip()
                         
-                        # Enhanced character cleaning and encoding handling
-                        try:
-                            # Try UTF-8 first, fallback to latin-1 for problematic characters
-                            line = raw_data.decode('utf-8', errors='replace').strip()
-                        except UnicodeDecodeError:
-                            # Fallback to latin-1 if UTF-8 fails completely
-                            line = raw_data.decode('latin-1', errors='replace').strip()
-                        
-                        # Debug: Show raw data with enhanced character inspection
+                        # Debug: Show raw data
                         if line:
                             logger.debug(f"Raw Arduino data: {repr(raw_data)} -> decoded: {repr(line)}")
                         
-                        # Comprehensive character cleaning - remove all control characters except essential ones
-                        import re
-                        # Remove null bytes, carriage returns, line feeds, and other control characters
-                        line = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', line)
-                        line = line.strip()
+                        # Additional cleaning for any remaining line ending issues and null bytes
+                        line = line.replace('\r', '').replace('\n', '').replace('\x00', '').strip()
                         
                         # Skip empty lines
                         if not line:
